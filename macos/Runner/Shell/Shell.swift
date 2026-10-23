@@ -1,0 +1,501 @@
+import AppKit
+import Carbon
+import ServiceManagement
+import UniformTypeIdentifiers
+
+/// Namespace for image helpers shared with the Swift app (CapturePanel adds `applyEffect`).
+enum Renderer {}
+
+/// The menu bar app, ported from the Swift SnapLite's AppDelegate: status item, capture panel (left click),
+/// full menu (right click), global hotkeys, capture / countdown / copy text / recording flows.
+/// The editor and Library are Flutter; this talks to them through `SnapLiteNative.shared`.
+final class Shell: NSObject, NSMenuDelegate {
+    static let shared = Shell()
+
+    private let defaults = UserDefaults.standard
+    private var statusItem: NSStatusItem!
+    private let popover = NSPopover()
+    private let panel = CapturePanelController()
+    private var menu: NSMenu!
+    private let recentMenu = NSMenu()
+    private let loginItem = NSMenuItem(title: "Open at Login", action: #selector(toggleLogin), keyEquivalent: "")
+    private let openEditorItem = NSMenuItem(title: "Open in Editor", action: #selector(toggleOpenEditor), keyEquivalent: "")
+    private let copyImageItem = NSMenuItem(title: "Copy to Clipboard", action: #selector(toggleCopyImage), keyEquivalent: "")
+    private let microphoneItem = NSMenuItem(title: "Record Microphone", action: #selector(toggleMicrophone), keyEquivalent: "")
+    private let recorder = Recorder()
+    private var recordingTimer: Timer?
+    private var countdownTimer: Timer?
+    private var shortcutItems: [ShortcutAction: NSMenuItem] = [:]
+    private let shortcutWarning = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private var busy = false   // a capture, countdown or region pick is in progress
+
+    func start() {
+        defaults.register(defaults: [Prefs.openEditor: true, Prefs.copyImage: false, Prefs.microphone: false])
+        NSApp.appearance = Theme.appearance
+        // In "Match System", follow light/dark switches while running
+        DistributedNotificationCenter.default().addObserver(forName: Notification.Name("AppleInterfaceThemeChangedNotification"),
+                                                            object: nil, queue: .main) { _ in
+            if Theme.choice == .system { NotificationCenter.default.post(name: Theme.changed, object: nil) }
+        }
+
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        statusItem.button?.target = self
+        statusItem.button?.action = #selector(statusClicked)
+        statusItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        showIdleIcon()
+        menu = buildMenu()
+
+        // Left click: the capture panel. Right click (or ⌃-click): the full menu, also behind the panel's gear.
+        popover.contentViewController = panel
+        popover.behavior = .transient
+        panel.gearMenu = menu
+        panel.onCapture = { [weak self] config in self?.captureFromPanel(config) }
+        panel.onOpenLibrary = { [weak self] in
+            self?.popover.performClose(nil)
+            self?.showLibrary()
+        }
+        registerHotKeys()
+        NotificationCenter.default.addObserver(self, selector: #selector(registerHotKeys), name: Shortcuts.changed, object: nil)
+
+        if !CGPreflightScreenCaptureAccess() {
+            CGRequestScreenCaptureAccess()
+        }
+    }
+
+    // MARK: - Menus
+
+    private func buildMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.delegate = self
+        menu.addItem(item("Capture Region", #selector(captureRegion), shortcut: .region))
+        menu.addItem(item("Capture Window", #selector(captureWindow), shortcut: .window))
+        menu.addItem(item("Capture Full Screen", #selector(captureScreen), shortcut: .screen))
+        let delayed = NSMenuItem(title: "Capture Region After Delay", action: nil, keyEquivalent: "")
+        delayed.submenu = NSMenu()
+        for seconds in [3, 5, 10] {
+            let entry = item("\(seconds) Seconds", #selector(captureDelayed(_:)))
+            entry.tag = seconds
+            delayed.submenu?.addItem(entry)
+        }
+        menu.addItem(delayed)
+        menu.addItem(item("Copy Text…", #selector(grabText), shortcut: .text))
+        menu.addItem(item("Record Screen…", #selector(startRecordingFromMenu), shortcut: .record))
+        shortcutWarning.isEnabled = false
+        menu.addItem(shortcutWarning)
+        menu.addItem(.separator())
+        menu.addItem(item("Library", #selector(showLibrary), shortcut: .library))
+        menu.addItem(item("Open Image…", #selector(openImage)))
+        let recent = NSMenuItem(title: "Recent Captures", action: nil, keyEquivalent: "")
+        recent.submenu = recentMenu
+        menu.addItem(recent)
+        menu.addItem(item("Open Captures Folder", #selector(openFolder)))
+        menu.addItem(.separator())
+        let after = NSMenuItem(title: "After Capture", action: nil, keyEquivalent: "")
+        after.submenu = NSMenu()
+        for entry in [openEditorItem, copyImageItem] {
+            entry.target = self
+            after.submenu?.addItem(entry)
+        }
+        menu.addItem(after)
+        for entry in [microphoneItem, loginItem] {
+            entry.target = self
+            menu.addItem(entry)
+        }
+        let settings = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
+        settings.target = self
+        menu.addItem(settings)
+        menu.addItem(NSMenuItem(title: "Quit SnapLite", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        return menu
+    }
+
+    private func item(_ title: String, _ action: Selector, shortcut: ShortcutAction? = nil) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        item.target = self
+        if let shortcut { shortcutItems[shortcut] = item }
+        return item
+    }
+
+    /// Shows each item's current shortcut, and a warning line for ones another app owns.
+    private func updateShortcutItems() {
+        for (action, item) in shortcutItems {
+            let (key, mask) = Shortcuts.get(action)?.menuKey ?? ("", [])
+            item.keyEquivalent = key
+            item.keyEquivalentModifierMask = mask
+        }
+        let failed = Shortcuts.failed.compactMap { Shortcuts.get($0)?.display }
+        shortcutWarning.title = "Shortcut in use by another app: " + failed.joined(separator: ", ")
+        shortcutWarning.isHidden = failed.isEmpty
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        updateShortcutItems()
+        loginItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
+        openEditorItem.state = defaults.bool(forKey: Prefs.openEditor) ? .on : .off
+        copyImageItem.state = defaults.bool(forKey: Prefs.copyImage) ? .on : .off
+        microphoneItem.state = defaults.bool(forKey: Prefs.microphone) ? .on : .off
+
+        recentMenu.removeAllItems()
+        let files = (try? FileManager.default.contentsOfDirectory(at: Capture.folder, includingPropertiesForKeys: [.contentModificationDateKey],
+                                                                   options: .skipsHiddenFiles)) ?? []
+        let recent = files
+            .filter { ["png", "jpg", "jpeg"].contains($0.pathExtension.lowercased()) }
+            .map { ($0, (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) }
+            .sorted { $0.1 > $1.1 }
+            .prefix(12)
+        for (url, _) in recent {
+            let entry = NSMenuItem(title: url.deletingPathExtension().lastPathComponent, action: #selector(openRecent(_:)), keyEquivalent: "")
+            entry.target = self
+            entry.representedObject = url
+            recentMenu.addItem(entry)
+        }
+        if recentMenu.items.isEmpty {
+            let empty = NSMenuItem(title: "No captures yet", action: nil, keyEquivalent: "")
+            empty.isEnabled = false
+            recentMenu.addItem(empty)
+        }
+    }
+
+    // MARK: - Menu bar icon states
+
+    private func showIdleIcon() {
+        statusItem.button?.image = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: "SnapLite")
+        statusItem.button?.contentTintColor = nil
+        statusItem.button?.title = ""
+        statusItem.button?.imagePosition = .imageOnly
+    }
+
+    private func showCountdown(_ seconds: Int) {
+        statusItem.button?.image = NSImage(systemSymbolName: "timer", accessibilityDescription: "Countdown")
+        statusItem.button?.title = " \(seconds)"
+        statusItem.button?.imagePosition = .imageLeading
+    }
+
+    // MARK: - Hotkeys
+
+    /// Registers the shortcuts from Settings; runs again whenever they change.
+    @objc private func registerHotKeys() {
+        HotKeyCenter.shared.unregisterAll()
+        Shortcuts.failed.removeAll()
+        for action in ShortcutAction.allCases {
+            guard let shortcut = Shortcuts.get(action) else { continue }
+            let ok = HotKeyCenter.shared.register(shortcut) { [weak self] in self?.perform(action) }
+            if !ok {
+                Shortcuts.failed.append(action)
+                NSLog("SnapLite: could not register %@ (another app owns it)", shortcut.display)
+            }
+        }
+        updateShortcutItems()
+    }
+
+    func perform(_ action: ShortcutAction) {
+        switch action {
+        case .region: capture(.region)
+        case .window: capture(.window)
+        case .screen: capture(.screen)
+        case .text: grabText()
+        case .record: toggleRecording()
+        case .library: showLibrary()
+        }
+    }
+
+    // MARK: - Capture
+
+    @objc private func captureRegion() { capture(.region) }
+    @objc private func captureWindow() { capture(.window) }
+    @objc private func captureScreen() { capture(.screen) }
+
+    private func hasPermission() -> Bool {
+        if CGPreflightScreenCaptureAccess() { return true }
+        showPermissionAlert()
+        return false
+    }
+
+    // MARK: - Status item and panel
+
+    @objc private func statusClicked() {
+        if recorder.isRecording {
+            stopRecording()
+            return
+        }
+        let event = NSApp.currentEvent
+        if event?.type == .rightMouseUp || event?.modifierFlags.contains(.control) == true {
+            popover.performClose(nil)
+            statusItem.menu = menu            // attach just long enough to show it
+            statusItem.button?.performClick(nil)
+            statusItem.menu = nil
+        } else if popover.isShown {
+            popover.performClose(nil)
+        } else if let button = statusItem.button {
+            panel.reload()
+            popover.appearance = Theme.appearance
+            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            NSApp.activate()
+            popover.contentViewController?.view.window?.makeKey()   // so the first click on a chip counts
+        }
+    }
+
+    /// The panel's Capture button: optional countdown, then the tab's capture with its settings.
+    private func captureFromPanel(_ config: CaptureConfig) {
+        popover.performClose(nil)
+        let run = { [weak self] in
+            guard let self else { return }
+            switch config.tab {
+            case .allInOne: self.capture(.region)
+            case .image:
+                switch config.imageSelection {
+                case .region: self.capture(.region)
+                case .window: self.capture(.window)
+                case .fullScreen: self.capture(.screen, cursor: config.cursor)
+                }
+            case .video: self.startRecording(fullScreen: config.videoSelection == .fullScreen)
+            case .text: self.grabText()
+            }
+        }
+        if config.delayOn {
+            countdown(config.delaySeconds, then: run)
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: run)   // let the panel fade out first
+        }
+    }
+
+    func capture(_ mode: CaptureMode, cursor: Bool = false) {
+        guard !busy, !recorder.isRecording, hasPermission() else { return }
+        busy = true
+        let config = CaptureConfig.current
+        Capture.run(mode, cursor: cursor, windowShadow: config.windowShadow, sound: config.captureSound) { [weak self] url in
+            self?.busy = false
+            if let url { self?.handleCapture(url) }   // nil: the user pressed Esc
+        }
+    }
+
+    /// Image captures (hotkeys and the panel alike) get the panel's effect, clipboard, editor and share settings.
+    private func handleCapture(_ url: URL) {
+        let config = CaptureConfig.current
+        Renderer.applyEffect(config.effect, to: url)
+        SnapLiteNative.shared?.invoke("capturesChanged")
+        switch config.share {
+        case .none: break
+        case .desktop:
+            let desktop = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask)[0]
+            try? FileManager.default.copyItem(at: url, to: Capture.uniqueURL(in: desktop, base: url.deletingPathExtension().lastPathComponent))
+        case .finder: NSWorkspace.shared.activateFileViewerSelecting([url])
+        case .preview:
+            if let preview = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Preview") {
+                NSWorkspace.shared.open([url], withApplicationAt: preview, configuration: NSWorkspace.OpenConfiguration())
+            }
+        }
+        let copy = defaults.bool(forKey: Prefs.copyImage)
+        let open = defaults.bool(forKey: Prefs.openEditor)
+        if copy, let data = try? Data(contentsOf: url) {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setData(data, forType: .png)
+        }
+        if open {
+            openEditor(url)
+        } else if !copy {
+            Toast.show("Saved to Pictures › SnapLite")   // otherwise there is no sign the capture happened
+        }
+    }
+
+    /// The menu's delayed region capture.
+    @objc private func captureDelayed(_ sender: NSMenuItem) {
+        countdown(sender.tag) { [weak self] in self?.capture(.region) }
+    }
+
+    /// Counts down in the menu bar (time to open a menu or hover something), then runs `action`.
+    private func countdown(_ seconds: Int, then action: @escaping () -> Void) {
+        guard !busy, !recorder.isRecording, hasPermission() else { return }
+        busy = true
+        var remaining = seconds
+        showCountdown(remaining)
+        countdownTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] timer in
+            guard let self else { return }
+            remaining -= 1
+            if remaining > 0 {
+                self.showCountdown(remaining)
+                return
+            }
+            timer.invalidate()
+            self.showIdleIcon()
+            self.busy = false
+            action()
+        }
+    }
+
+    /// Region capture straight to OCR; the text goes to the clipboard and the image is thrown away.
+    @objc func grabText() {
+        guard !busy, !recorder.isRecording, hasPermission() else { return }
+        busy = true
+        let temp = Capture.uniqueURL(in: Capture.cacheFolder, base: "grab-text")
+        Capture.run(.region, to: temp, sound: CaptureConfig.current.captureSound) { [weak self] url in
+            self?.busy = false
+            guard let url else { return }
+            // Read the whole file into memory first: ImageIO decodes lazily, and deleting the file
+            // before Vision got to it left an empty image (seen on the Air). Delete only when done.
+            guard let data = try? Data(contentsOf: url),
+                  let source = CGImageSourceCreateWithData(data as CFData, nil),
+                  let image = CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary) else {
+                try? FileManager.default.removeItem(at: url)
+                Toast.show("Could not read the capture", symbol: "exclamationmark.triangle.fill")
+                return
+            }
+            Toast.show("Reading text…", symbol: "text.viewfinder")
+            TextGrabber.recognize(image) { text in
+                try? FileManager.default.removeItem(at: url)
+                Shell.copyText(text)
+            }
+        }
+    }
+
+    /// Puts OCR text on the clipboard and previews it in a toast.
+    static func copyText(_ text: String, hint: String = "") {
+        guard !text.isEmpty else {
+            Toast.show("No text found", symbol: "text.magnifyingglass")
+            return
+        }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        // Show what was read in the notice at the bottom; it is already on the clipboard
+        let lines = text.split(separator: "\n").count
+        Toast.show(lines == 1 ? "Copied 1 line" : "Copied \(lines) lines", symbol: "text.viewfinder", detail: text,
+                   footnote: hint.isEmpty ? nil : hint)
+    }
+
+    private func showPermissionAlert() {
+        NSApp.activate()
+        let alert = NSAlert()
+        alert.messageText = "SnapLite needs Screen Recording permission"
+        alert.informativeText = "Turn on SnapLite in System Settings › Privacy & Security › Screen & System Audio Recording, then quit and reopen SnapLite."
+        alert.addButton(withTitle: "Open System Settings")
+        alert.addButton(withTitle: "Cancel")
+        if alert.runModal() == .alertFirstButtonReturn,
+           let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    // MARK: - Recording
+
+    func toggleRecording() {
+        if recorder.isRecording { stopRecording() } else { startRecording(fullScreen: false) }
+    }
+
+    @objc private func startRecordingFromMenu() {
+        startRecording(fullScreen: false)
+    }
+
+    /// Full screen records the screen under the mouse; otherwise the user drags an area first.
+    private func startRecording(fullScreen: Bool) {
+        guard !busy, !recorder.isRecording, hasPermission() else { return }
+        busy = true
+        let begin = { [weak self] (rect: CGRect) in
+            guard let self else { return }
+            self.busy = false
+            let config = CaptureConfig.current
+            let started = self.recorder.start(rect: rect, microphone: config.microphone, showClicks: config.showClicks) { movie in
+                self.recordingFinished(movie)
+            }
+            if started { self.showRecordingState() }
+        }
+        if fullScreen {
+            let mouse = NSEvent.mouseLocation
+            let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.screens[0]
+            begin(screen.frame)
+            return
+        }
+        RegionSelector.select(hint: "Drag to record an area, or click to record this whole screen. Esc cancels.") { [weak self] rect in
+            guard let rect else {
+                self?.busy = false
+                return
+            }
+            // Give the overlay time to disappear so it is not in the first frames
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { begin(rect) }
+        }
+    }
+
+    /// While recording, the menu bar icon is a red stop button with the elapsed time.
+    private func showRecordingState() {
+        popover.performClose(nil)   // a click on the icon now stops the recording (see statusClicked)
+        statusItem.button?.image = NSImage(systemSymbolName: "stop.circle.fill", accessibilityDescription: "Stop recording")
+        statusItem.button?.contentTintColor = .systemRed
+        statusItem.button?.imagePosition = .imageLeading
+        updateRecordingTime()
+        recordingTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.updateRecordingTime() }
+    }
+
+    private func updateRecordingTime() {
+        let seconds = Int(Date().timeIntervalSince(recorder.startedAt ?? Date()))
+        statusItem.button?.title = String(format: " %d:%02d", seconds / 60, seconds % 60)
+    }
+
+    @objc private func stopRecording() {
+        recorder.stop()
+    }
+
+    private func recordingFinished(_ movie: URL?) {
+        recordingTimer?.invalidate()
+        recordingTimer = nil
+        showIdleIcon()
+        guard let movie else {
+            Toast.show("Recording failed", symbol: "exclamationmark.triangle.fill")
+            return
+        }
+        SnapLiteNative.shared?.invoke("capturesChanged")
+        if CaptureConfig.current.openVideoWhenDone {
+            Toast.show("Recording saved. Trim it with ⌘T in QuickTime.", symbol: "video.fill")
+            NSWorkspace.shared.open(movie)
+        } else {
+            Toast.show("Recording saved to the Library", symbol: "video.fill")
+        }
+    }
+
+    // MARK: - Settings
+
+    @objc private func toggleOpenEditor() { defaults.set(!defaults.bool(forKey: Prefs.openEditor), forKey: Prefs.openEditor) }
+    @objc private func toggleCopyImage() { defaults.set(!defaults.bool(forKey: Prefs.copyImage), forKey: Prefs.copyImage) }
+    @objc private func toggleMicrophone() { defaults.set(!defaults.bool(forKey: Prefs.microphone), forKey: Prefs.microphone) }
+
+    @objc private func toggleLogin() {
+        let service = SMAppService.mainApp
+        do {
+            if service.status == .enabled { try service.unregister() } else { try service.register() }
+        } catch {
+            NSApp.activate()
+            NSAlert(error: error).runModal()
+        }
+    }
+
+    // MARK: - Editor, library and files (Flutter)
+
+    func openEditor(_ url: URL) {
+        NSApp.activate()
+        SnapLiteNative.shared?.invoke("openEditor", url.path)
+    }
+
+    @objc func showLibrary() {
+        NSApp.activate()
+        SnapLiteNative.shared?.invoke("showLibrary")
+    }
+
+    @objc func openImage() {
+        NSApp.activate()
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = Capture.folder
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        openEditor(url)
+    }
+
+    @objc private func openRecent(_ sender: NSMenuItem) {
+        if let url = sender.representedObject as? URL { openEditor(url) }
+    }
+
+    @objc func showSettings() {
+        SettingsWindowController.shared.show()
+    }
+
+    @objc private func openFolder() {
+        NSWorkspace.shared.open(Capture.folder)
+    }
+}

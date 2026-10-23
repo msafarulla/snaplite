@@ -1,0 +1,607 @@
+import AppKit
+import FlutterMacOS
+import QuickLookThumbnailing
+import Vision
+
+/// macOS platform layer for the Flutter UI, on the channel "snaplite/native". Ported from the Swift
+/// SnapLite: region selector, screen recorder (red frame + Stop bar), Vision OCR, stored shortcuts,
+/// Screen Recording permission. Windows/Linux implement the same channel later.
+final class SnapLiteNative {
+  static weak var shared: SnapLiteNative?
+
+  private let channel: FlutterMethodChannel
+  private let recorder = Recorder()
+
+  init(messenger: FlutterBinaryMessenger) {
+    channel = FlutterMethodChannel(name: "snaplite/native", binaryMessenger: messenger)
+    channel.setMethodCallHandler { [weak self] call, result in self?.handle(call, result) }
+    TextGrabber.warmUp()
+    SnapLiteNative.shared = self
+  }
+
+  /// Native → Dart: "openEditor" (path), "showLibrary", "capturesChanged", "recordingFinished".
+  func invoke(_ method: String, _ arguments: Any? = nil) {
+    channel.invokeMethod(method, arguments: arguments)
+  }
+
+  private func handle(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) {
+    let args = call.arguments as? [String: Any] ?? [:]
+    switch call.method {
+    case "shell":
+      // Dart → the menu bar shell's own flows, so the editor's buttons behave like the hotkeys
+      switch args["action"] as? String {
+      case "openImage": Shell.shared.openImage()
+      case "settings": Shell.shared.showSettings()
+      case let name?: if let action = ShortcutAction(rawValue: name) { Shell.shared.perform(action) }
+      default: break
+      }
+      result(nil)
+    case "copyText":
+      Shell.copyText(args["text"] as? String ?? "")
+      result(nil)
+    case "toast":
+      Toast.show(args["message"] as? String ?? "", symbol: args["symbol"] as? String ?? "checkmark.circle.fill")
+      result(nil)
+    case "toolbarTools":
+      result(UserDefaults.standard.array(forKey: "toolbarTools") as? [Int])
+    case "thumbnail":
+      // Quick Look thumbnail (images and movies alike) as PNG bytes
+      let url = URL(fileURLWithPath: args["path"] as? String ?? "")
+      let size = args["size"] as? Double ?? 180
+      let request = QLThumbnailGenerator.Request(fileAt: url, size: CGSize(width: size, height: size * 0.75),
+                                                 scale: NSScreen.main?.backingScaleFactor ?? 2, representationTypes: .thumbnail)
+      QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { rep, _ in
+        let png = rep.flatMap { NSBitmapImageRep(cgImage: $0.cgImage).representation(using: .png, properties: [:]) }
+        DispatchQueue.main.async { result(png.map { FlutterStandardTypedData(bytes: $0) }) }
+      }
+    case "trash":
+      let urls = (args["paths"] as? [String] ?? []).map { URL(fileURLWithPath: $0) }
+      NSWorkspace.shared.recycle(urls) { _, _ in DispatchQueue.main.async { result(nil) } }
+    case "copyFiles":
+      // One image: the picture plus its file; several (or movies): the files
+      let urls = (args["paths"] as? [String] ?? []).map { URL(fileURLWithPath: $0) }
+      let pasteboard = NSPasteboard.general
+      pasteboard.clearContents()
+      if urls.count == 1, urls[0].pathExtension.lowercased() != "mov", let image = NSImage(contentsOf: urls[0]) {
+        pasteboard.writeObjects([image, urls[0] as NSURL])
+      } else {
+        pasteboard.writeObjects(urls as [NSURL])
+      }
+      Toast.show(urls.count == 1 ? "Copied" : "Copied \(urls.count) items")
+      result(nil)
+    case "copyTextOfFile":
+      guard let path = args["path"] as? String, let data = FileManager.default.contents(atPath: path),
+            let src = CGImageSourceCreateWithData(data as CFData, nil),
+            let image = CGImageSourceCreateImageAtIndex(src, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary) else {
+        result(nil); return
+      }
+      Toast.show("Reading text…", symbol: "text.viewfinder")
+      TextGrabber.recognize(image) { Shell.copyText($0); result(nil) }
+    case "exportGIF":
+      Toast.show("Making GIF…", symbol: "hourglass")
+      GIFExporter.export(URL(fileURLWithPath: args["path"] as? String ?? "")) { [weak self] gif in
+        if gif != nil {
+          Toast.show("GIF saved to the library")
+          self?.invoke("capturesChanged")
+        } else {
+          Toast.show("Could not make a GIF", symbol: "exclamationmark.triangle.fill")
+        }
+        result(gif?.path)
+      }
+    case "storedShortcuts":
+      // The Swift app stored each as JSON Data {keyCode, modifiers} (Carbon codes); same bundle id, same defaults.
+      var out: [String: String] = [:]
+      for action in ["region", "window", "screen", "text", "record", "library"] {
+        if let data = UserDefaults.standard.data(forKey: "shortcut.\(action)"), let s = String(data: data, encoding: .utf8) {
+          out[action] = s
+        }
+      }
+      result(out)
+    case "setShortcut":
+      let key = "shortcut.\(args["action"] as? String ?? "")"
+      if let json = args["json"] as? String { UserDefaults.standard.set(json.data(using: .utf8), forKey: key) }
+      else { UserDefaults.standard.removeObject(forKey: key) }
+      result(nil)
+    case "getDataString":
+      let key = args["key"] as? String ?? ""
+      if let data = UserDefaults.standard.data(forKey: key) { result(String(data: data, encoding: .utf8)) }
+      else { result(UserDefaults.standard.string(forKey: key)) }
+    case "setDataString":
+      UserDefaults.standard.set((args["json"] as? String ?? "").data(using: .utf8), forKey: args["key"] as? String ?? "")
+      result(nil)
+    case "getString":
+      result(UserDefaults.standard.string(forKey: args["key"] as? String ?? ""))
+    case "setString":
+      UserDefaults.standard.set(args["value"] as? String, forKey: args["key"] as? String ?? "")
+      result(nil)
+    case "showColorPanel":
+      let rgb = args["color"] as? Int ?? 0xE8332A
+      let panel = NSColorPanel.shared
+      panel.setTarget(self)
+      panel.setAction(#selector(colorPanelChanged(_:)))
+      panel.isContinuous = true
+      panel.color = NSColor(srgbRed: CGFloat((rgb >> 16) & 0xFF) / 255, green: CGFloat((rgb >> 8) & 0xFF) / 255,
+                            blue: CGFloat(rgb & 0xFF) / 255, alpha: 1)
+      panel.orderFront(nil)
+      result(nil)
+    case "getBool":
+      let key = args["key"] as? String ?? ""
+      result(UserDefaults.standard.object(forKey: key) == nil ? nil : UserDefaults.standard.bool(forKey: key))
+    case "setBool":
+      UserDefaults.standard.set(args["value"] as? Bool ?? false, forKey: args["key"] as? String ?? "")
+      result(nil)
+    case "screenAccess":
+      result(CGPreflightScreenCaptureAccess())
+    case "requestScreenAccess":
+      let granted = CGRequestScreenCaptureAccess()
+      if !granted, let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+        NSWorkspace.shared.open(url)
+      }
+      result(granted)
+    case "selectRegion":
+      RegionSelector.select(hint: args["hint"] as? String ?? "Drag to select an area · Esc to cancel") { rect in
+        result(rect.map { [$0.minX, $0.minY, $0.width, $0.height] })
+      }
+    case "startRecording":
+      // Pick the area first, then record it; the movie path arrives later via "recordingFinished".
+      RegionSelector.select(hint: "Drag the area to record · click for the whole screen · Esc to cancel") { [weak self] rect in
+        guard let self, let rect else { result("cancelled"); return }
+        let started = self.recorder.start(rect: rect, microphone: args["microphone"] as? Bool ?? false,
+                                          showClicks: args["showClicks"] as? Bool ?? true) { [weak self] url in
+          self?.channel.invokeMethod("recordingFinished", arguments: url?.path)
+        }
+        result(started ? "started" : "failed")
+      }
+    case "stopRecording":
+      recorder.stop()
+      result(nil)
+    case "isRecording":
+      result(recorder.isRecording)
+    case "ocr":
+      guard let path = args["path"] as? String, let data = FileManager.default.contents(atPath: path),
+            let src = CGImageSourceCreateWithData(data as CFData, nil),
+            let image = CGImageSourceCreateImageAtIndex(src, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary) else {
+        result(""); return
+      }
+      TextGrabber.recognize(image) { result($0) }
+    case "imageDensity":
+      guard let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: args["path"] as? String ?? "") as CFURL, nil),
+            let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
+            let dpi = props[kCGImagePropertyDPIWidth] as? Double, dpi > 0 else { result(nil); return }
+      result(max(1, (dpi / 72).rounded()))
+    case "reveal":
+      if let path = args["path"] as? String { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) }
+      result(nil)
+    case "openPath":
+      if let path = args["path"] as? String { NSWorkspace.shared.open(URL(fileURLWithPath: path)) }
+      result(nil)
+    case "activate":
+      NSApp.activate(ignoringOtherApps: true)
+      result(nil)
+    case "displayUnderMouse":
+      // screencapture -D numbers displays from 1 in NSScreen.screens order
+      let mouse = NSEvent.mouseLocation
+      result((NSScreen.screens.firstIndex { NSMouseInRect(mouse, $0.frame, false) } ?? 0) + 1)
+    case "beep":
+      NSSound.beep()
+      result(nil)
+    default:
+      result(FlutterMethodNotImplemented)
+    }
+  }
+}
+
+extension SnapLiteNative {
+  @objc func colorPanelChanged(_ sender: NSColorPanel) {
+    guard let c = sender.color.usingColorSpace(.sRGB) else { return }
+    func byte(_ v: CGFloat) -> Int { Int(max(0, min(255, (v * 255).rounded()))) }
+    invoke("colorPicked", byte(c.redComponent) << 16 | byte(c.greenComponent) << 8 | byte(c.blueComponent))
+  }
+}
+
+// MARK: - Shared helpers
+
+enum CaptureFiles {
+  static let folder: URL = {
+    let pictures = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask)[0]
+    let url = pictures.appendingPathComponent("SnapLite", isDirectory: true)
+    try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    return url
+  }()
+
+  /// A free file name, e.g. "SnapLite 2026-10-20 at 14.05.33.png", then "... 2.png".
+  static func newCaptureURL(prefix: String = "SnapLite", ext: String = "png") -> URL {
+    let f = DateFormatter()
+    f.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
+    let base = "\(prefix) \(f.string(from: Date()))"
+    var url = folder.appendingPathComponent("\(base).\(ext)")
+    var n = 2
+    while FileManager.default.fileExists(atPath: url.path) {
+      url = folder.appendingPathComponent("\(base) \(n).\(ext)")
+      n += 1
+    }
+    return url
+  }
+}
+
+private enum Look {
+  static let dim = NSColor(white: 0.08, alpha: 1)
+  static let accent = NSColor.controlAccentColor
+  static let surface = NSColor(white: 0.12, alpha: 1)
+  static let border = NSColor(white: 1, alpha: 0.18)
+  static let text = NSColor.white
+  static func font(_ size: CGFloat) -> NSFont { .systemFont(ofSize: size, weight: .medium) }
+}
+
+private extension CGRect {
+  init(corner a: CGPoint, _ b: CGPoint) {
+    self.init(x: min(a.x, b.x), y: min(a.y, b.y), width: abs(a.x - b.x), height: abs(a.y - b.y))
+  }
+}
+
+// MARK: - Region selector
+
+/// Full-screen overlays for dragging out a rectangle, in Cocoa global coordinates.
+/// A click without a drag picks that whole screen; Esc cancels.
+final class RegionSelector {
+  private static var current: RegionSelector?   // keeps the overlays alive while open
+
+  private var windows: [NSWindow] = []
+  private var completion: ((CGRect?) -> Void)?
+
+  static func select(hint: String, completion: @escaping (CGRect?) -> Void) {
+    current?.finish(nil)
+    let selector = RegionSelector()
+    selector.completion = completion
+    current = selector
+
+    let mouse = NSEvent.mouseLocation
+    for screen in NSScreen.screens {
+      let window = OverlayWindow(contentRect: screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
+      window.level = .screenSaver
+      window.isOpaque = false
+      window.backgroundColor = .clear
+      window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+      let view = SelectionView(frame: CGRect(origin: .zero, size: screen.frame.size))
+      view.screenFrame = screen.frame
+      view.hint = hint
+      view.onFinish = { [weak selector] rect in selector?.finish(rect) }
+      window.contentView = view
+      window.setFrame(screen.frame, display: true)
+      window.orderFrontRegardless()
+      if NSMouseInRect(mouse, screen.frame, false) {
+        window.makeKey()
+      }
+      window.makeFirstResponder(view)
+      selector.windows.append(window)
+    }
+    NSApp.activate(ignoringOtherApps: true)
+  }
+
+  private func finish(_ rect: CGRect?) {
+    windows.forEach { $0.orderOut(nil) }
+    windows.removeAll()
+    let done = completion
+    completion = nil
+    if RegionSelector.current === self { RegionSelector.current = nil }
+    done?(rect)
+  }
+}
+
+private final class OverlayWindow: NSWindow {
+  override var canBecomeKey: Bool { true }
+}
+
+private final class SelectionView: NSView {
+  var screenFrame = CGRect.zero
+  var hint = ""
+  var onFinish: ((CGRect?) -> Void)?
+  private var start: CGPoint?
+  private var current: CGPoint?
+
+  override var acceptsFirstResponder: Bool { true }
+  override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+  private var selection: CGRect? {
+    guard let a = start, let b = current else { return nil }
+    return CGRect(corner: a, b)
+  }
+
+  override func draw(_ dirtyRect: NSRect) {
+    let dim = NSBezierPath(rect: bounds)
+    if let r = selection { dim.appendRect(r) }
+    dim.windingRule = .evenOdd
+    Look.dim.withAlphaComponent(0.45).setFill()
+    dim.fill()
+
+    if let r = selection {
+      let border = NSBezierPath(rect: r.insetBy(dx: -0.5, dy: -0.5))
+      border.lineWidth = 1.5
+      Look.accent.setStroke()
+      border.stroke()
+      label("\(Int(r.width)) × \(Int(r.height))", at: CGPoint(x: r.minX, y: max(r.minY - 26, 4)))
+    } else {
+      let attributes: [NSAttributedString.Key: Any] = [.font: Look.font(15)]
+      let width = (hint as NSString).size(withAttributes: attributes).width
+      label(hint, at: CGPoint(x: bounds.midX - width / 2 - 10, y: bounds.maxY - 120), fontSize: 15)
+    }
+  }
+
+  private func label(_ text: String, at point: CGPoint, fontSize: CGFloat = 12) {
+    let attributes: [NSAttributedString.Key: Any] = [.font: Look.font(fontSize), .foregroundColor: Look.text]
+    let size = (text as NSString).size(withAttributes: attributes)
+    let box = CGRect(x: point.x, y: point.y, width: size.width + 20, height: size.height + 8)
+    Look.surface.withAlphaComponent(0.92).setFill()
+    let pill = NSBezierPath(roundedRect: box, xRadius: 6, yRadius: 6)
+    pill.fill()
+    Look.border.setStroke()
+    pill.stroke()
+    (text as NSString).draw(at: CGPoint(x: box.minX + 10, y: box.minY + 4), withAttributes: attributes)
+  }
+
+  override func resetCursorRects() {
+    addCursorRect(bounds, cursor: .crosshair)
+  }
+
+  override func mouseDown(with event: NSEvent) {
+    start = convert(event.locationInWindow, from: nil)
+    current = start
+    needsDisplay = true
+  }
+
+  override func mouseDragged(with event: NSEvent) {
+    current = convert(event.locationInWindow, from: nil)
+    needsDisplay = true
+  }
+
+  override func mouseUp(with event: NSEvent) {
+    guard let r = selection else { return }
+    if r.width < 4 || r.height < 4 {
+      onFinish?(screenFrame)
+    } else {
+      onFinish?(r.offsetBy(dx: screenFrame.minX, dy: screenFrame.minY))
+    }
+  }
+
+  override func keyDown(with event: NSEvent) {
+    if event.keyCode == 53 { onFinish?(nil) } else { super.keyDown(with: event) }
+  }
+}
+
+// MARK: - Recorder
+
+/// Screen recording through `screencapture -v`. It records until it gets SIGINT, which also
+/// finalizes the movie (writing to its stdin does not stop it).
+final class Recorder {
+  private var process: Process?
+  private var frame: NSWindow?
+  private var controls: NSPanel?
+  private var controlsTimer: Timer?
+  private(set) var startedAt: Date?
+
+  var isRecording: Bool { process != nil }
+
+  /// `rect` is in Cocoa global coordinates. Completion gets the movie, or nil if nothing was written.
+  func start(rect: CGRect, microphone: Bool, showClicks: Bool = true, completion: @escaping (URL?) -> Void) -> Bool {
+    guard process == nil else { return false }
+    let url = CaptureFiles.newCaptureURL(prefix: "SnapLite Recording", ext: "mov")
+
+    // screencapture -R takes points from the top-left of the main display
+    let mainHeight = NSScreen.screens.first?.frame.height ?? 0
+    let r = CGRect(x: rect.minX, y: mainHeight - rect.maxY, width: rect.width, height: rect.height).integral
+    var args = ["-x", "-v", "-R\(Int(r.minX)),\(Int(r.minY)),\(Int(r.width)),\(Int(r.height))"]
+    if showClicks { args.append("-k") }
+    if microphone { args.append("-g") }
+    args.append(url.path)
+
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+    p.arguments = args
+    p.standardInput = Pipe()
+    p.terminationHandler = { [weak self] _ in
+      DispatchQueue.main.async {
+        self?.process = nil
+        self?.startedAt = nil
+        self?.frame?.orderOut(nil)
+        self?.frame = nil
+        self?.hideControls()
+        completion(FileManager.default.fileExists(atPath: url.path) ? url : nil)
+      }
+    }
+    do {
+      try p.run()
+    } catch {
+      return false
+    }
+    process = p
+    startedAt = Date()
+    showFrame(around: rect)
+    showControls(near: rect)
+    return true
+  }
+
+  func stop() {
+    process?.interrupt()
+  }
+
+  /// A small bar with the elapsed time and a "Stop Recording" button, just outside the recorded area
+  /// when there is room (macOS's own menu bar indicator only offers "Stop Sharing").
+  private func showControls(near rect: CGRect) {
+    let size = NSSize(width: 214, height: 36)
+    let screen = NSScreen.screens.first { $0.frame.intersects(rect) } ?? NSScreen.screens[0]
+    let visible = screen.visibleFrame
+    var origin = NSPoint(x: rect.midX - size.width / 2, y: rect.minY - size.height - 10)   // below
+    if origin.y < visible.minY { origin.y = rect.maxY + 10 }                              // else above
+    if origin.y + size.height > visible.maxY { origin.y = visible.minY + 16 }             // else bottom of screen
+    origin.x = min(max(origin.x, visible.minX + 8), visible.maxX - size.width - 8)
+
+    let panel = NSPanel(contentRect: NSRect(origin: origin, size: size), styleMask: [.borderless, .nonactivatingPanel],
+                        backing: .buffered, defer: false)
+    panel.isOpaque = false
+    panel.backgroundColor = .clear
+    panel.level = .statusBar
+    panel.hasShadow = true
+    panel.sharingType = .none   // keep it out of the recording where macOS honors this
+    panel.collectionBehavior = [.canJoinAllSpaces, .stationary]
+
+    let background = NSView()
+    background.wantsLayer = true
+    background.layer?.backgroundColor = NSColor(white: 0.12, alpha: 0.92).cgColor
+    background.layer?.cornerRadius = 10
+    let time = NSTextField(labelWithString: "0:00")
+    time.font = .monospacedDigitSystemFont(ofSize: 13, weight: .medium)
+    time.textColor = .white
+    let dot = NSImageView(image: NSImage(systemSymbolName: "record.circle.fill", accessibilityDescription: "Recording")!)
+    dot.contentTintColor = .systemRed
+    // Drawn by hand: a standard button looks disabled here, since the bar never becomes key
+    let stop = StopButton(title: "Stop Recording", target: self, action: #selector(stopClicked))
+    stop.isBordered = false
+    stop.wantsLayer = true
+    stop.layer?.backgroundColor = NSColor.systemRed.cgColor
+    stop.layer?.cornerRadius = 7
+    stop.image = NSImage(systemSymbolName: "stop.fill", accessibilityDescription: nil)
+    stop.imagePosition = .imageLeading
+    stop.contentTintColor = .white
+    stop.attributedTitle = NSAttributedString(string: " Stop Recording ",
+                                              attributes: [.font: NSFont.systemFont(ofSize: 13, weight: .semibold), .foregroundColor: NSColor.white])
+    stop.heightAnchor.constraint(equalToConstant: 26).isActive = true
+    stop.widthAnchor.constraint(equalToConstant: 136).isActive = true
+    let stack = NSStackView(views: [dot, time, stop])
+    stack.spacing = 8
+    stack.edgeInsets = NSEdgeInsets(top: 4, left: 10, bottom: 4, right: 6)
+    stack.translatesAutoresizingMaskIntoConstraints = false
+    background.addSubview(stack)
+    NSLayoutConstraint.activate([
+      stack.leadingAnchor.constraint(equalTo: background.leadingAnchor),
+      stack.trailingAnchor.constraint(equalTo: background.trailingAnchor),
+      stack.centerYAnchor.constraint(equalTo: background.centerYAnchor),
+    ])
+    panel.contentView = background
+    panel.orderFrontRegardless()
+    controls = panel
+
+    controlsTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+      guard let start = self?.startedAt else { return }
+      let seconds = Int(Date().timeIntervalSince(start))
+      time.stringValue = String(format: "%d:%02d", seconds / 60, seconds % 60)
+    }
+  }
+
+  @objc private func stopClicked() {
+    stop()
+  }
+
+  private func hideControls() {
+    controlsTimer?.invalidate()
+    controlsTimer = nil
+    controls?.orderOut(nil)
+    controls = nil
+  }
+
+  /// A red border just outside the recorded area; it is click-through and not in the recording.
+  private func showFrame(around rect: CGRect) {
+    let inset: CGFloat = 3
+    let window = NSWindow(contentRect: rect.insetBy(dx: -inset, dy: -inset), styleMask: .borderless, backing: .buffered, defer: false)
+    window.isOpaque = false
+    window.backgroundColor = .clear
+    window.ignoresMouseEvents = true
+    window.sharingType = .none
+    window.level = .statusBar
+    window.collectionBehavior = [.canJoinAllSpaces, .stationary]
+    window.contentView = FrameView(inset: inset)
+    window.orderFrontRegardless()
+    frame = window
+  }
+}
+
+/// The Stop bar is never key, so its button must take the first click.
+private final class StopButton: NSButton {
+  override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
+private final class FrameView: NSView {
+  private let inset: CGFloat
+
+  init(inset: CGFloat) {
+    self.inset = inset
+    super.init(frame: .zero)
+  }
+
+  required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+  override func draw(_ dirtyRect: NSRect) {
+    let path = NSBezierPath(rect: bounds.insetBy(dx: inset / 2, dy: inset / 2))
+    path.lineWidth = inset - 1
+    NSColor.systemRed.setStroke()
+    path.stroke()
+  }
+}
+
+// MARK: - OCR
+
+/// On-device OCR. Words on the same row are joined with tabs, so grids paste into a spreadsheet as cells.
+enum TextGrabber {
+  static func recognize(_ image: CGImage, completion: @escaping (String) -> Void) {
+    DispatchQueue.global(qos: .userInitiated).async {
+      // Transparent margins made Vision find nothing on a whole wide capture, so read the image on
+      // solid white; if that still finds nothing, try once at twice the size.
+      var text = read(onWhite(image, scale: 1))
+      if text.isEmpty, max(image.width, image.height) <= 4000 { text = read(onWhite(image, scale: 2)) }
+      DispatchQueue.main.async { completion(text) }
+    }
+  }
+
+  private static func read(_ image: CGImage?) -> String {
+    guard let image else { return "" }
+    let request = VNRecognizeTextRequest()
+    request.recognitionLevel = .accurate
+    request.usesLanguageCorrection = true
+    do {
+      try VNImageRequestHandler(cgImage: image).perform([request])
+    } catch {
+      return ""
+    }
+    return arrange(request.results ?? [])
+  }
+
+  private static func onWhite(_ image: CGImage, scale: CGFloat) -> CGImage? {
+    let w = Int(CGFloat(image.width) * scale), h = Int(CGFloat(image.height) * scale)
+    guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                              space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+    ctx.setFillColor(.white)
+    ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+    ctx.interpolationQuality = .high
+    ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+    return ctx.makeImage()
+  }
+
+  /// The first recognition in a process loads Vision's model and takes ~15 s; do that at launch.
+  static func warmUp() {
+    let image = NSImage(size: NSSize(width: 240, height: 48), flipped: false) { rect in
+      NSColor.white.setFill()
+      rect.fill()
+      ("SnapLite warm up 123" as NSString).draw(at: NSPoint(x: 8, y: 12),
+                                               withAttributes: [.font: NSFont.systemFont(ofSize: 20), .foregroundColor: NSColor.black])
+      return true
+    }
+    guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return }
+    recognize(cg) { _ in }
+  }
+
+  private static func arrange(_ observations: [VNRecognizedTextObservation]) -> String {
+    let pieces = observations.compactMap { o in o.topCandidates(1).first.map { (box: o.boundingBox, text: $0.string) } }
+      .sorted { $0.box.midY > $1.box.midY }
+    var rows: [[(box: CGRect, text: String)]] = []
+    for piece in pieces {
+      if let last = rows.last?.last, abs(last.box.midY - piece.box.midY) < min(last.box.height, piece.box.height) * 0.5 {
+        rows[rows.count - 1].append(piece)
+      } else {
+        rows.append([piece])
+      }
+    }
+    return rows
+      .map { $0.sorted { $0.box.minX < $1.box.minX }.map(\.text).joined(separator: "\t") }
+      .joined(separator: "\n")
+  }
+}

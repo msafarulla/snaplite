@@ -1,0 +1,7 @@
+#include "../../Flutter/Flutter-Debug.xcconfig"
+#include "Warnings.xcconfig"
+
+// Apple Silicon only — avoids the universal-arch unpack bug on Xcode 27
+ARCHS = arm64
+EXCLUDED_ARCHS[sdk=macosx*] = x86_64
+ONLY_ACTIVE_ARCH = YES

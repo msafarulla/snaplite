@@ -1,0 +1,138 @@
+import 'dart:io';
+import 'package:flutter/widgets.dart';
+import 'package:hotkey_manager/hotkey_manager.dart';
+import 'package:tray_manager/tray_manager.dart';
+import 'package:window_manager/window_manager.dart';
+import '../editor/editor_page.dart';
+import '../library/library_page.dart';
+import '../platform/hotkeys.dart';
+import '../platform/native.dart';
+
+/// The Flutter side of the app: the Library / editor window. On macOS the menu bar shell (status item,
+/// capture panel, hotkeys, capture and recording flows) is native (macos/Runner/Shell) and calls in here to
+/// open a file in the editor or show the Library. Other platforms get a tray + hotkeys from plugins.
+class AppController with TrayListener, WindowListener {
+  AppController._();
+  static final instance = AppController._();
+
+  final editorKey = GlobalKey<EditorPageState>();
+  final libraryKey = GlobalKey<LibraryPageState>();
+  /// Bumped whenever the captures folder changes (new capture, recording, GIF, trash).
+  final capturesVersion = ValueNotifier<int>(0);
+  Map<ShortcutAction, Shortcut?> shortcuts = {};
+  bool _sized = false;
+
+  /// ~/Pictures/SnapLite, or SNAPLITE_CAPTURES_DIR (demos, tests).
+  static String get capturesFolder {
+    final dir = Directory(Platform.environment['SNAPLITE_CAPTURES_DIR'] ?? '${Platform.environment['HOME']}/Pictures/SnapLite');
+    if (!dir.existsSync()) dir.createSync(recursive: true);
+    return dir.path;
+  }
+
+  /// A free file name, e.g. "SnapLite 2026-10-20 at 14.05.33.png", then "... 2.png".
+  static String newCapturePath({String prefix = 'SnapLite', String ext = 'png'}) {
+    final d = DateTime.now();
+    String two(int n) => n.toString().padLeft(2, '0');
+    final base = '$prefix ${d.year}-${two(d.month)}-${two(d.day)} at ${two(d.hour)}.${two(d.minute)}.${two(d.second)}';
+    var path = '$capturesFolder/$base.$ext';
+    var n = 2;
+    while (File(path).existsSync()) {
+      path = '$capturesFolder/$base $n.$ext';
+      n++;
+    }
+    return path;
+  }
+
+  /// Startup trace in ~/Library/Caches/SnapLite/trace.log (release builds have no console).
+  static void trace(String msg) {
+    try {
+      final dir = Directory('${Platform.environment['HOME']}/Library/Caches/SnapLite')..createSync(recursive: true);
+      File('${dir.path}/trace.log').writeAsStringSync('${DateTime.now().toIso8601String()} $msg\n', mode: FileMode.append);
+    } catch (_) {}
+  }
+
+  Future<void> init() async {
+    trace('init start');
+    Native.init();
+    Native.onOpenEditor = openEditor;
+    Native.onShowLibrary = showLibrary;
+    Native.onCapturesChanged = () => capturesVersion.value++;
+    await windowManager.ensureInitialized();
+    await windowManager.setPreventClose(true);
+    windowManager.addListener(this);
+    if (!Platform.isMacOS) await _initTrayAndHotkeys();
+    trace('ready');
+  }
+
+  /// The menu bar shell's actions (region, window, screen, text, record, library, openImage, settings).
+  void perform(String action) {
+    if (action == 'library') {
+      showLibrary();
+    } else {
+      Native.shell(action);
+    }
+  }
+
+  // ---- Window ----
+
+  Future<void> _show() async {
+    if (!_sized) {
+      _sized = true;
+      await windowManager.setMinimumSize(const Size(720, 480));
+      await windowManager.setSize(const Size(1240, 860));
+      await windowManager.center();
+    }
+    await windowManager.show();
+    await windowManager.focus();
+    await Native.activate();
+  }
+
+  /// Opens a capture in the editor (Library edit mode, with the filmstrip of all captures).
+  Future<void> openEditor(String path) async {
+    await _show();
+    await libraryKey.currentState?.openForEditing(path);
+  }
+
+  Future<void> showLibrary() async {
+    await _show();
+    await libraryKey.currentState?.showGrid();
+  }
+
+  @override
+  void onWindowClose() async {
+    if (await libraryKey.currentState?.confirmDiscard() ?? true) await windowManager.hide();
+  }
+
+  // ---- Windows / Linux: tray and hotkeys from plugins (capture flows to be added per platform) ----
+
+  Future<void> _initTrayAndHotkeys() async {
+    trayManager.addListener(this);
+    await trayManager.setIcon('assets/tray_icon.png');
+    await trayManager.setToolTip('SnapLite');
+    shortcuts = await HotkeyStore.load();
+    await hotKeyManager.unregisterAll();
+    for (final entry in shortcuts.entries) {
+      final hk = entry.value?.toHotKey(entry.key.name);
+      if (hk == null) continue;
+      try {
+        await hotKeyManager.register(hk, keyDownHandler: (_) => perform(entry.key.name));
+      } catch (e) {
+        trace('hotkey ${entry.key.name} failed: $e');
+      }
+    }
+    await trayManager.setContextMenu(Menu(items: [
+      for (final a in ShortcutAction.values) MenuItem(key: a.name, label: a.title),
+      MenuItem.separator(),
+      MenuItem(key: 'quit', label: 'Quit SnapLite'),
+    ]));
+  }
+
+  @override
+  void onTrayIconMouseDown() => trayManager.popUpContextMenu();
+
+  @override
+  void onTrayMenuItemClick(MenuItem menuItem) {
+    if (menuItem.key == 'quit') exit(0);
+    perform(menuItem.key ?? '');
+  }
+}
