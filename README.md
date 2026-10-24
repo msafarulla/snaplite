@@ -6,8 +6,9 @@ blur what's private, and copy or save it, without leaving your keyboard.
 
 ![The SnapLite editor: tapered arrow, callout with pointer, numbered steps, highlight and box on a dashboard capture](docs/screenshots/editor.png)
 
-> **Platforms:** SnapLite is fully functional on **macOS** today. It's built with Flutter, and versions for
-> Windows and Linux are coming soon.
+> **Platforms:** SnapLite is fully functional on **macOS** today. It's built with Flutter, and early previews
+> for Windows and Linux are in every release. Once I have Windows and Linux machines to develop and test on,
+> the same features (capture, recording, Copy Text and the rest) will come to those platforms too.
 
 ## Why SnapLite
 
@@ -149,7 +150,8 @@ in).
 
 **About the previews:** they build and start on every release (checked automatically), but haven't been tried
 by hand yet. The editor (open an image, mark it up, save) is the part meant to work. Screen capture, recording,
-Copy Text (OCR), notifications and Library thumbnails are macOS-only for now. Bug reports are welcome in
+Copy Text (OCR), notifications and Library thumbnails are macOS-only for now; they'll follow once I have
+Windows and Linux machines to build and test them on. Bug reports are welcome in
 [Issues](https://github.com/msafarulla/snaplite/issues).
 
 ### Build from source (macOS)
@@ -176,10 +178,31 @@ install Flutter and run `flutter build windows` or `flutter build linux`.
   ([`SnapLiteNative.swift`](macos/Runner/SnapLiteNative.swift) ↔ [`native.dart`](lib/platform/native.dart)).
 - Settings live in the app's UserDefaults (`defaults read com.mm.SnapLite`).
 
+## Builds and releases
+
+[GitHub Actions](.github/workflows/build.yml) checks every push and pull request:
+
+- **Tests:** `flutter analyze` and the full `flutter test` suite on macOS.
+- **Builds:** macOS, Windows and Linux. The Windows and Linux builds are also launched for 15 seconds to make sure
+  they start.
+
+Each run's builds can be downloaded from its page under [Actions](https://github.com/msafarulla/snaplite/actions).
+
+**Publishing a release** takes a version tag. Bump `version:` in `pubspec.yaml`, commit, then:
+
+```sh
+git tag -a v1.13.0 -m "SnapLite 1.13.0"
+git push origin v1.13.0
+```
+
+The same workflow builds all three platforms and, only if every job passes, publishes them as a
+[GitHub Release](https://github.com/msafarulla/snaplite/releases) with notes generated from the commits.
+
 ## Roadmap
 
 - Signed, notarized releases
-- Windows and Linux (the editor and Library already run; capture and the tray need native code)
+- Windows and Linux with the full feature set (capture, recording, Copy Text, notifications), once I have
+  machines of each to develop and test on
 - Scrolling capture, auto-redact, search captures by their text
 
 ## License
