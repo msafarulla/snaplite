@@ -1,0 +1,117 @@
+# Tests on every push and pull request; builds for macOS, Windows and Linux; a tag like v1.12.0 also
+# publishes those builds as a GitHub Release.
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: '3.32.2'
+
+jobs:
+  test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze --no-fatal-infos
+      - run: flutter test
+
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - run: flutter build macos --release
+      # No Apple Developer ID yet: signed ad hoc, so macOS asks before the first launch (see README)
+      - name: Sign and zip
+        run: |
+          app=build/macos/Build/Products/Release/SnapLite.app
+          codesign --force --deep -s - "$app"
+          codesign --verify --deep --strict "$app"
+          ditto -c -k --keepParent "$app" SnapLite-macOS.zip
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: SnapLite-macOS
+          path: SnapLite-macOS.zip
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - run: flutter build windows --release
+      - name: Starts without crashing
+        shell: pwsh
+        run: |
+          $p = Start-Process build\windows\x64\runner\Release\snaplite_flutter.exe -PassThru
+          Start-Sleep -Seconds 15
+          if ($p.HasExited) { throw "SnapLite exited right away (code $($p.ExitCode))" }
+          Stop-Process -Id $p.Id
+      - name: Zip
+        shell: pwsh
+        run: Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath SnapLite-Windows.zip
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: SnapLite-Windows
+          path: SnapLite-Windows.zip
+
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build tools and libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libgtk-3-dev libayatana-appindicator3-dev libkeybinder-3.0-dev xvfb
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - run: flutter build linux --release
+      - name: Starts without crashing
+        run: |
+          set +e
+          timeout 15 xvfb-run -a build/linux/x64/release/bundle/snaplite_flutter
+          code=$?
+          [ $code -eq 124 ] || { echo "SnapLite exited right away (code $code)"; exit 1; }
+      - name: Archive
+        run: tar -C build/linux/x64/release -czf SnapLite-Linux-x64.tar.gz --transform 's,^bundle,SnapLite,' bundle
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: SnapLite-Linux
+          path: SnapLite-Linux-x64.tar.gz
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [test, macos, windows, linux]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          merge-multiple: true
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "SnapLite ${GITHUB_REF_NAME#v}" \
+            --generate-notes SnapLite-macOS.zip SnapLite-Windows.zip SnapLite-Linux-x64.tar.gz
