@@ -69,6 +69,13 @@ Right-click the canvas to flip, trim, crop to the canvas, resize it, change the 
 everything into the image. Drag the image's square handles to add space around it.
 
 **⌘C** copies the finished image (marching ants show it worked), **⌘S** saves it back to the capture.
+**⇧⌘S** (Save As…) exports PNG, JPEG, HEIC, TIFF, PDF, GIF or BMP, keeping Retina resolution.
+
+**More › Save as Animated GIF…** turns your markup into a looping GIF: the original capture first, then
+each annotation appears in the order you added it (arrows grow, boxes draw on, steps pop in, highlights
+wipe), and the finished picture holds at the end. Good for showing a step-by-step in a chat or a ticket.
+
+**Zoom:** pinch, ⌘-scroll, or ⌘= / ⌘- / ⌘0 (fit) / ⌘1 (100%); scroll or hold Space and drag to pan.
 
 <br clear="right">
 
