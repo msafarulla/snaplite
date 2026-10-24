@@ -74,6 +74,19 @@ final class SnapLiteNative {
       }
       Toast.show(urls.count == 1 ? "Copied" : "Copied \(urls.count) items")
       result(nil)
+    case "copyGif":
+      // The GIF bytes for apps that paste image data, plus the file for apps that paste files
+      // (Messages, Slack, Mail, Finder), which is what keeps it animated there
+      guard let path = args["path"] as? String, let data = FileManager.default.contents(atPath: path) else {
+        result(FlutterError(code: "copyGif", message: "No GIF at path", details: nil))
+        return
+      }
+      let item = NSPasteboardItem()
+      item.setData(data, forType: NSPasteboard.PasteboardType("com.compuserve.gif"))
+      item.setString(URL(fileURLWithPath: path).absoluteString, forType: .fileURL)
+      NSPasteboard.general.clearContents()
+      NSPasteboard.general.writeObjects([item])
+      result(nil)
     case "copyTextOfFile":
       guard let path = args["path"] as? String, let data = FileManager.default.contents(atPath: path),
             let src = CGImageSourceCreateWithData(data as CFData, nil),

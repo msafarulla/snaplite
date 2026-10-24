@@ -77,6 +77,7 @@ everything into the image. Drag the image's square handles to add space around i
 **More › Save as Animated GIF…** turns your markup into a looping GIF: the original capture first, then
 each annotation appears in the order you added it (arrows grow, boxes draw on, steps pop in, highlights
 wipe), and the finished picture holds at the end. Good for showing a step-by-step in a chat or a ticket.
+**⇧⌘C** copies that animated GIF straight to the clipboard, ready to paste into Messages, Slack or Mail.
 
 ![An animated GIF made by SnapLite: curved arrows draw themselves onto a dashboard capture, one after another](docs/screenshots/build-up.gif)
 

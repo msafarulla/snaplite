@@ -147,4 +147,65 @@ void main() {
     expect(frames.length, 1 + 2 * perShape, reason: 'every frame of both appearances changes something');
     expect(frames.last.$2, BuildUpGif.finalHold + const Duration(milliseconds: 600 ~/ (600 * BuildUpGif.fps ~/ 1000)));
   });
+
+  testWidgets('⇧⌘C copies the build-up GIF, ⌘C still copies the still image', (tester) async {
+    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final toasts = <String>[], copiedGifs = <String>[];
+    var pngCopies = 0;
+    messenger.setMockMethodCallHandler(const MethodChannel('window_manager'), (_) async => null);
+    messenger.setMockMethodCallHandler(const MethodChannel('pasteboard'), (call) async {
+      if (call.method == 'writeImage') pngCopies++;
+      return null;
+    });
+    messenger.setMockMethodCallHandler(const MethodChannel('snaplite/native'), (call) async {
+      final args = call.arguments as Map?;
+      if (call.method == 'toast') toasts.add(args!['message'] as String);
+      if (call.method == 'copyGif') copiedGifs.add(args!['path'] as String);
+      return null;
+    });
+    tester.view.physicalSize = const Size(1600, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final original = FlutterError.onError;
+    FlutterError.onError = (d) {
+      if (!d.exceptionAsString().contains('overflowed')) original?.call(d);
+    };
+    addTearDown(() => FlutterError.onError = original);
+
+    await tester.runAsync(() async {
+      await tester.pumpWidget(const MaterialApp(home: EditorPage()));
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+    });
+    await tester.pump();
+    final area = tester.getRect(find.byKey(const ValueKey('snaplite-canvas')));
+
+    Future<void> press({required bool shift}) => tester.runAsync(() async {
+          if (shift) await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+          await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+          await tester.sendKeyEvent(LogicalKeyboardKey.keyC);
+          await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+          if (shift) await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+          await Future<void>.delayed(const Duration(seconds: 3)); // the GIF renders off the test clock
+        });
+
+    await press(shift: true);
+    expect(toasts.last, 'Add some markup first');
+    expect(copiedGifs, isEmpty);
+
+    await tester.tap(find.text('Arrow'));
+    await tester.pump();
+    await tester.dragFrom(area.topLeft + const Offset(300, 300), const Offset(250, -150));
+    await tester.pump();
+
+    await press(shift: true);
+    expect(toasts.last, 'Copied GIF');
+    expect(copiedGifs.single, endsWith('/SnapLite GIFs/SnapLite.gif'));
+    final frames = await tester.runAsync(() async => decode(await File(copiedGifs.single).readAsBytes()));
+    expect(frames!.length, greaterThan(2), reason: 'animated, not a still');
+    expect(pngCopies, 0);
+
+    await press(shift: false);
+    expect(pngCopies, 1, reason: '⌘C is unchanged');
+    expect(copiedGifs.length, 1);
+  });
 }

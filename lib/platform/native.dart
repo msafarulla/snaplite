@@ -37,6 +37,8 @@ class Native {
   static Future<void> trash(List<String> paths) => _call('trash', {'paths': paths});
   static Future<void> copyFiles(List<String> paths) => _call('copyFiles', {'paths': paths});
   static Future<void> copyTextOfFile(String path) => _call('copyTextOfFile', {'path': path});
+  /// Puts the GIF file on the clipboard as both GIF data and a file, so it pastes animated.
+  static Future<void> copyGif(String path) => _call('copyGif', {'path': path});
   static Future<String?> exportGif(String path) => _call<String>('exportGIF', {'path': path});
   /// Save panel with a Format menu (PNG, JPEG, HEIC, TIFF, PDF, GIF, BMP); returns the saved path,
   /// null when cancelled, and throws a PlatformException when writing fails.

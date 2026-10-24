@@ -892,16 +892,10 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
 
   /// Save as Animated GIF: the original capture, then each addition appearing in the order it was made.
   Future<void> saveAnimatedGif() async {
-    _endTextEdit();
-    final s = _state;
+    final s = await _gifState();
     if (s == null) return;
-    if (s.annotations.isEmpty) {
-      await Native.toast('Add some markup first', symbol: 'exclamationmark.triangle.fill');
-      return;
-    }
-    final name = _path?.split('/').last.replaceFirst(RegExp(r'\.[^.]+$'), '') ?? 'SnapLite';
     try {
-      var path = await pickGifPath('$name.gif');
+      var path = await pickGifPath('${_gifName()}.gif');
       if (path == null) return;
       if (!path.toLowerCase().endsWith('.gif')) path = '$path.gif';
       await Native.toast('Making GIF…', symbol: 'hourglass');
@@ -912,6 +906,38 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
       await Native.toast("Couldn't make the GIF", symbol: 'exclamationmark.triangle.fill');
     }
   }
+
+  /// ⇧⌘C: the build-up GIF on the clipboard (⌘C copies the still image). The file lives in a temp
+  /// folder, since apps like Messages and Slack paste the file to keep it animated.
+  Future<void> copyAnimatedGif() async {
+    final s = await _gifState();
+    if (s == null) return;
+    try {
+      await Native.toast('Making GIF…', symbol: 'hourglass');
+      final dir = Directory('${Directory.systemTemp.path}/SnapLite GIFs')..createSync(recursive: true);
+      final path = '${dir.path}/${_gifName()}.gif';
+      await File(path).writeAsBytes(await BuildUpGif.render(s), flush: true);
+      await Native.copyGif(path);
+      await Native.toast('Copied GIF');
+    } catch (e, st) {
+      debugPrint('GIF: $e\n$st');
+      await Native.toast("Couldn't make the GIF", symbol: 'exclamationmark.triangle.fill');
+    }
+  }
+
+  /// The canvas to animate, or null (with a toast) when there's no markup to build up.
+  Future<CanvasState?> _gifState() async {
+    _endTextEdit();
+    final s = _state;
+    if (s == null) return null;
+    if (s.annotations.isEmpty) {
+      await Native.toast('Add some markup first', symbol: 'exclamationmark.triangle.fill');
+      return null;
+    }
+    return s;
+  }
+
+  String _gifName() => _path?.split('/').last.replaceFirst(RegExp(r'\.[^.]+$'), '') ?? 'SnapLite';
 
   // ---- Canvas operations (flatten / flip / trim / crop / resize / color) ----
 
@@ -1295,6 +1321,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
         const SingleActivator(LogicalKeyboardKey.keyZ, meta: true): _undoAction,
         const SingleActivator(LogicalKeyboardKey.keyZ, meta: true, shift: true): _redoAction,
         const SingleActivator(LogicalKeyboardKey.keyC, meta: true): _copyImage,
+        const SingleActivator(LogicalKeyboardKey.keyC, meta: true, shift: true): copyAnimatedGif,
         const SingleActivator(LogicalKeyboardKey.keyS, meta: true): save,
         const SingleActivator(LogicalKeyboardKey.keyS, meta: true, shift: true): saveAs,
         _cmd(LogicalKeyboardKey.equal): zoomIn,
@@ -1641,6 +1668,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
                   ('flatten', Icons.layers_clear_outlined, 'Flatten All'),
                   ('export', Icons.ios_share, 'Save As…'),
                   ('gif', Icons.gif_box_outlined, 'Save as Animated GIF…'),
+                  ('copyGif', Icons.gif_outlined, 'Copy as Animated GIF  ⇧⌘C'),
                   ('settings', Icons.settings_outlined, 'Settings…'),
                 ],
                 onSelected: (v) {
@@ -1652,6 +1680,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
                     case 'flatten': _flattenInPlace();
                     case 'export': saveAs();
                     case 'gif': saveAnimatedGif();
+                    case 'copyGif': copyAnimatedGif();
                     case 'settings': Native.shell('settings');
                   }
                 },
