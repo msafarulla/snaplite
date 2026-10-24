@@ -6,6 +6,9 @@ blur what's private, and copy or save it, without leaving your keyboard.
 
 ![The SnapLite editor: tapered arrow, callout with pointer, numbered steps, highlight and box on a dashboard capture](docs/screenshots/editor.png)
 
+> **Platforms:** SnapLite is fully functional on **macOS** today. It's built with Flutter, and versions for
+> Windows and Linux are coming soon.
+
 ## Why SnapLite
 
 - **One shortcut, done.** Press your capture shortcut (⌃⇧C by default, any combination you like), drag an area,
@@ -74,6 +77,8 @@ everything into the image. Drag the image's square handles to add space around i
 **More › Save as Animated GIF…** turns your markup into a looping GIF: the original capture first, then
 each annotation appears in the order you added it (arrows grow, boxes draw on, steps pop in, highlights
 wipe), and the finished picture holds at the end. Good for showing a step-by-step in a chat or a ticket.
+
+![An animated GIF made by SnapLite: curved arrows draw themselves onto a dashboard capture, one after another](docs/screenshots/build-up.gif)
 
 **Zoom:** pinch, ⌘-scroll, or ⌘= / ⌘- / ⌘0 (fit) / ⌘1 (100%); scroll or hold Space and drag to pan.
 
