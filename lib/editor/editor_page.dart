@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
@@ -11,6 +12,7 @@ import 'package:file_saver/file_saver.dart';
 import 'package:pasteboard/pasteboard.dart';
 import 'package:window_manager/window_manager.dart';
 import '../app/app_controller.dart';
+import '../export/build_up_gif.dart';
 import '../model/annotation.dart';
 import '../platform/native.dart';
 import 'canvas_painter.dart';
@@ -39,6 +41,14 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
 
   void focus() => _focus.requestFocus();
 
+  // In-place typing for Text and Callout: the annotation being typed into, and the state before (for undo/cancel)
+  ({int id, CanvasState before, bool isNew})? _textEdit;
+  final _textController = _RichTextController();
+  String _lastText = ''; // to move formatting runs along with each edit
+  final _textFocus = FocusNode(debugLabel: 'text');
+  DateTime _lastDown = DateTime(0); // double-click detection on the canvas
+  Offset _lastDownPoint = Offset.zero;
+
   // Active gesture
   Offset? _createStart;
   Offset? _createCurrent;
@@ -46,6 +56,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
   int? _dragId;
   int? _resizeHandle; // null => move
   Offset _lastPoint = Offset.zero;
+  (int, Offset)? _pendingBend; // a "+" handle grabbed: (stretch, where) — becomes a bend point when dragged
   CanvasState? _gestureSnapshot;
 
   static const _palette = [
@@ -70,6 +81,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     super.initState();
     _makeBlankCanvas(1200, 800);
     _loadPrefs();
+    _textController.addListener(_textChanged);
     Native.onColorPicked = (rgb) => pickColor(Color(0xFF000000 | rgb), refresh: false);
   }
 
@@ -82,6 +94,14 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
         if (s != null) _styleDefaults[k] = s;
       } catch (_) {}
     }
+    for (final kind in ['text', 'callout']) {
+      final raw = await Native.getDataString('style.textFormat.$kind');
+      if (raw == null) continue;
+      try {
+        final f = TextFormat.fromJson(jsonDecode(raw));
+        if (f != null) _textFormats[kind] = f;
+      } catch (_) {}
+    }
     final raw = await Native.toolbarTools();
     if (raw != null) {
       _visibleTools = {for (final i in raw) if (i >= 0 && i < _swiftTool.length) _swiftTool[i]};
@@ -91,6 +111,11 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
   }
 
   ArrowStyle _styleFor(StyleKind k) => _styleDefaults[k] ?? k.builtIn;
+
+  /// Remembered text formats for the Text and Callout tools ("text" / "callout").
+  final _textFormats = <String, TextFormat>{};
+  TextFormat _formatFor(String kind) => _textFormats[kind] ?? const TextFormat();
+  static String _textKind(Annotation a) => a.shape is CalloutShape ? 'callout' : 'text';
 
   double get _density => _state?.density ?? 1;
 
@@ -116,8 +141,11 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
   /// Edits since the file was opened or last saved.
   bool get hasUnsavedChanges => _state != null && !identical(_state, _savedState);
   String? get path => _path;
+  @visibleForTesting
+  CanvasState? get state => _state;
 
   void _undoAction() {
+    if (_textEdit != null) return _endTextEdit(cancel: true);
     if (_undo.isEmpty || _state == null) return;
     _redo.add(_state!);
     setState(() { _state = _undo.removeLast(); _selection = null; });
@@ -142,6 +170,85 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
   /// Resizing the canvas by its square handles: handle index, new rect (image coords), grab offset.
   (int, Rect, Offset)? _canvasDrag;
   double _viewScale = 1; // view points per image point, from the last layout
+
+  // ---- Zoom and pan ----
+  // One transform maps the canvas area to the image: view = origin + image * scale. Fit picks the scale
+  // (and centres) unless the user zoomed; pinch, ⌘-wheel and ⌘+/− keep the point under the pointer fixed.
+
+  double? _zoom; // view points per image point; null = fit to window
+  Offset _pan = Offset.zero; // origin offset from the centred position, while zoomed
+  Offset _viewOrigin = Offset.zero; // from the last layout
+  Size _viewSize = Size.zero;
+  double _pinchStart = 1; // scale when a trackpad pinch began
+  Offset? _panGrab; // Space-drag / middle-drag pan: last pointer position
+
+  @visibleForTesting
+  double get viewScale => _viewScale;
+  @visibleForTesting
+  Offset get viewOrigin => _viewOrigin;
+
+  /// Zoom as shown to the user: 100% = one image pixel per screen pixel.
+  double get zoomPercent => _viewScale * MediaQuery.devicePixelRatioOf(context) * 100;
+  bool get _zoomed => _zoom != null;
+
+  /// Sets the view scale, keeping the image point under `focal` (canvas-area coords) where it is.
+  void _zoomTo(double scale, {Offset? focal}) {
+    final s = _state;
+    if (s == null || _viewSize.isEmpty) return;
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    final next = scale.clamp(0.1 / dpr, 8 / dpr).toDouble();
+    final f = focal ?? _viewSize.center(Offset.zero);
+    final imagePoint = (f - _viewOrigin) / _viewScale;
+    final origin = f - imagePoint * next;
+    final centred = Offset((_viewSize.width - s.image.width * next) / 2, (_viewSize.height - s.image.height * next) / 2);
+    setState(() { _zoom = next; _pan = origin - centred; });
+    // Several pinch updates can land before the next layout: keep the transform current for them
+    _viewScale = next;
+    _viewOrigin = origin;
+  }
+
+  void _zoomBy(double factor, {Offset? focal}) => _zoomTo(_viewScale * factor, focal: focal);
+  void zoomIn() => _zoomBy(1.25);
+  void zoomOut() => _zoomBy(0.8);
+  void zoomToFit() => setState(() { _zoom = null; _pan = Offset.zero; });
+  void zoomActualSize() => _zoomTo(1 / MediaQuery.devicePixelRatioOf(context));
+
+  void _panBy(Offset delta) {
+    if (!_zoomed) return;
+    setState(() => _pan += delta);
+    _viewOrigin += delta;
+  }
+
+  /// Trackpad: pinch zooms around the fingers; two-finger scroll pans.
+  void _onPanZoomStart(PointerPanZoomStartEvent e) => _pinchStart = _viewScale;
+  void _onPanZoomUpdate(PointerPanZoomUpdateEvent e) {
+    if ((e.scale - 1).abs() > 0.001) {
+      _zoomTo(_pinchStart * e.scale, focal: e.localPosition);
+    } else {
+      _panBy(e.localPanDelta);
+    }
+  }
+
+  /// Mouse wheel pans; with ⌘ (Ctrl elsewhere) it zooms around the pointer.
+  void _onPointerSignal(PointerSignalEvent e) {
+    if (e is! PointerScrollEvent) return;
+    final keys = HardwareKeyboard.instance;
+    if (Platform.isMacOS ? keys.isMetaPressed : keys.isControlPressed) {
+      _zoomBy(math.exp(-e.scrollDelta.dy / 300), focal: e.localPosition);
+    } else {
+      _panBy(-e.scrollDelta);
+    }
+  }
+
+  /// Space-drag or middle-button drag moves a zoomed image around.
+  bool _startsPan(PointerDownEvent e) =>
+      _zoomed && (e.buttons == kMiddleMouseButton ||
+          (e.buttons == kPrimaryMouseButton && _textEdit == null &&
+              HardwareKeyboard.instance.logicalKeysPressed.contains(LogicalKeyboardKey.space)));
+
+  /// ⌘ on macOS, Ctrl on Windows and Linux.
+  static SingleActivator _cmd(LogicalKeyboardKey key, {bool shift = false}) =>
+      SingleActivator(key, meta: Platform.isMacOS, control: !Platform.isMacOS, shift: shift);
 
   bool get _showsCanvasHandles => (_imageSelected || _copied) && _selection == null;
 
@@ -194,8 +301,8 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     final reach = t + a.lineWidth;
     bool nearEdge(Rect r, double reach) => r.inflate(reach).contains(p) && !r.deflate(reach).contains(p);
     switch (a.shape) {
-      case ArrowShape(:final from, :final to, :final bend) || LineShape(:final from, :final to, :final bend):
-        return _nearCurve(from, to, bend, p, reach);
+      case ArrowShape() || LineShape():
+        return _nearCurve(a.curve!, a.curveTangents, p, reach);
       case PenShape(:final points):
         for (var i = 0; i < points.length - 1; i++) {
           if (_distToSeg(p, points[i], points[i + 1]) <= reach) return true;
@@ -217,31 +324,33 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
   /// Bounds of text, callouts, steps and images (for hit testing and their selection box).
   Rect? _bounds(Annotation a) => switch (a.shape) {
         TextShape(:final string, :final at) => () {
-            final tp = TextPainter(text: TextSpan(text: string, style: TextStyle(fontSize: a.fontSize, fontWeight: FontWeight.w700)),
-                textDirection: TextDirection.ltr)..layout();
+            final tp = CanvasPainter.textLayout(string, a, a.color);
             return Rect.fromLTWH(at.dx, at.dy, tp.width, tp.height);
           }(),
-        CalloutShape(:final string, :final at) => CanvasPainter.calloutRect(string, at, a.fontSize),
+        CalloutShape(:final string, :final at) => CanvasPainter.calloutRect(string, at, a),
         StepShape(:final center) => Rect.fromCircle(center: center, radius: a.stepDiameter / 2),
         _ => a.rect,
       };
 
-  bool _nearCurve(Offset from, Offset to, Offset bend, Offset p, double reach) {
-    final mid = Offset((from.dx + to.dx) / 2 + bend.dx, (from.dy + to.dy) / 2 + bend.dy);
-    final ctrl = Offset(2 * mid.dx - (from.dx + to.dx) / 2, 2 * mid.dy - (from.dy + to.dy) / 2);
-    Offset prev = from;
-    for (var i = 1; i <= 24; i++) {
-      final tt = i / 24;
-      final q = _quad(from, ctrl, to, tt);
-      if (_distToSeg(p, prev, q) <= reach) return true;
-      prev = q;
+  bool _nearCurve(List<Offset> pts, List<Offset?> tangents, Offset p, double reach) {
+    final samples = CanvasPainter.curveSamples(pts, tangents: tangents);
+    for (var i = 0; i < samples.length - 1; i++) {
+      if (_distToSeg(p, samples[i], samples[i + 1]) <= reach) return true;
     }
     return false;
   }
 
-  Offset _quad(Offset a, Offset c, Offset b, double t) {
-    final u = 1 - t;
-    return Offset(u * u * a.dx + 2 * u * t * c.dx + t * t * b.dx, u * u * a.dy + 2 * u * t * c.dy + t * t * b.dy);
+  /// Which stretch of the curve (between consecutive points) is nearest to `p`.
+  int _nearestStretch(List<Offset> pts, List<Offset?> tangents, Offset p) {
+    var best = 0, bestDist = double.infinity;
+    final segs = CanvasPainter.spline(pts, tangents);
+    for (final (i, (a, c1, c2, b)) in segs.indexed) {
+      for (var k = 0; k <= 16; k++) {
+        final d = (CanvasPainter.cubicPoint(a, c1, c2, b, k / 16) - p).distance;
+        if (d < bestDist) { bestDist = d; best = i; }
+      }
+    }
+    return best;
   }
 
   double _distToSeg(Offset p, Offset a, Offset b) {
@@ -270,6 +379,11 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
 
   /// `p` is in image coordinates and may lie outside the image (the canvas area around it).
   void _down(Offset p) {
+    if (_textEdit != null) { _endTextEdit(); return; } // a click elsewhere keeps the typed text
+    final now = DateTime.now();
+    final doubleClick = now.difference(_lastDown).inMilliseconds < 400 && (p - _lastDownPoint).distance * _viewScale < 6;
+    _lastDown = now;
+    _lastDownPoint = p;
     final handleTolerance = 9 / _viewScale;
     final canvasHandle = _showsCanvasHandles
         ? _canvasHandles.indexWhere((h) => (h - p).distance <= 8 / _viewScale) : -1;
@@ -280,12 +394,42 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
       setState(() => _canvasDrag = (canvasHandle, _imageRect, edge - p));
       return;
     }
+    if (doubleClick) {
+      final sel = _annotation(_selection);
+      final pts = sel?.curve;
+      if (sel != null && pts != null) {
+        final grip = CanvasPainter.curveGrips(sel).where((g) => (g.at - p).distance <= 9 / _viewScale).firstOrNull;
+        if (grip?.kind == GripKind.tangent) {
+          _replace(sel.withTangent(grip!.index, null)); // double-click a tangent handle: back to automatic
+          return;
+        }
+        if (grip?.kind == GripKind.bend) {
+          _replace(sel.removeBend(grip!.index)); // double-click a bend point: remove it
+          return;
+        }
+        if (_hitTest(sel, p, 6 / _viewScale)) {
+          _replace(sel.insertBend(_nearestStretch(pts, sel.curveTangents, p) + 1, p)); // double-click the curve: add one
+          return;
+        }
+      }
+      final t = _hit(p);
+      if (t != null && (t.shape is TextShape || t.shape is CalloutShape)) {
+        _beginTextEdit(t, before: _state!, isNew: false);
+        return;
+      }
+    }
     final selected = _annotation(_selection);
     if (selected != null) {
       final handles = _handlesOf(selected);
       for (var i = 0; i < handles.length; i++) {
         if ((handles[i] - p).distance <= handleTolerance) {
-          _dragId = selected.id; _resizeHandle = i; _lastPoint = p; _gestureSnapshot = _state;
+          _gestureSnapshot = _state;
+          if (selected.curve != null) {
+            final g = CanvasPainter.curveGrips(selected)[i];
+            // A "+" handle: a new bend point on that stretch once it's dragged (a plain click changes nothing)
+            if (g.kind == GripKind.add) _pendingBend = (g.index, g.at);
+          }
+          _dragId = selected.id; _resizeHandle = i; _lastPoint = p;
           return;
         }
       }
@@ -321,9 +465,15 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
           math.max(r.left, r.right), math.max(r.top, r.bottom));
       if (n.width >= 16 && n.height >= 16) setState(() => _canvasDrag = (h, n, grab));
     } else if (_dragId != null) {
-      final a = _annotation(_dragId);
+      var a = _annotation(_dragId);
       if (a == null) return;
-      final next = _resizeHandle == null ? a.movedBy(p - _lastPoint) : _resized(a, _resizeHandle!, p);
+      if (_pendingBend case (final stretch, final at)) {
+        _pendingBend = null;
+        a = a.insertBend(stretch + 1, at);
+        _replace(a, snapshot: false);
+        _resizeHandle = 2 + stretch; // now dragging the new bend point (handles: 2 ends, then the bends)
+      }
+      final next = _resizeHandle == null ? _moved(a, p - _lastPoint) : _resized(a, _resizeHandle!, p);
       _lastPoint = p;
       _replace(next, snapshot: false);
     } else if (_penPoints != null) {
@@ -343,7 +493,8 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
       final wasImage = _annotation(_dragId)?.shape is ImageShape;
       // One undo step for the whole move/resize, and none for a plain click
       if (_gestureSnapshot != null && !identical(_gestureSnapshot, _state)) { _undo.add(_gestureSnapshot!); _redo.clear(); }
-      _dragId = null; _resizeHandle = null; _gestureSnapshot = null;
+      // A redraw on release: the thickness slider (hidden while dragging) comes back, even after a plain click
+      setState(() { _dragId = null; _resizeHandle = null; _gestureSnapshot = null; _pendingBend = null; });
       if (wasImage) _growAfterEdit();
       return;
     }
@@ -359,6 +510,16 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
       _createStart = null; _createCurrent = null;
       _finishCreate(a, b);
     }
+  }
+
+  /// Dragging an annotation's body. A callout's bubble moves on its own, leaving the pointer tip anchored on
+  /// what it points at; Option-drag (Alt on Windows/Linux) moves the whole callout.
+  Annotation _moved(Annotation a, Offset d) {
+    if (a.shape case CalloutShape(:final string, :final at, :final tail?, :final runs)
+        when !HardwareKeyboard.instance.isAltPressed) {
+      return a.copyWith(shape: CalloutShape(string, at + d, tail: tail, runs: runs));
+    }
+    return a.movedBy(d);
   }
 
   /// New canvas = `rect` of the current image (image coords): added space shows the canvas colour, or it crops.
@@ -377,9 +538,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     if (_tool == Tool.callout) {
       // Drag from what to point at to where the bubble goes; a click points at the click
       final dragged = (b - a).distance * _viewScale > 12;
-      _promptText().then((text) {
-        if (text != null && text.isNotEmpty) _addCallout(text, a, dragged ? b : null);
-      });
+      _addCallout(a, dragged ? b : null);
       return;
     }
     final rect = Rect.fromPoints(a, b);
@@ -427,12 +586,17 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     switch (a.shape) {
       case CalloutShape(:final string, :final at):
         return a.copyWith(shape: CalloutShape(string, at, tail: _clamp(p)));
-      case ArrowShape(:final from, :final to, :final bend):
-        if (handle == 2) return a.copyWith(shape: ArrowShape(from, to, bend: Offset(p.dx - (from.dx + to.dx) / 2, p.dy - (from.dy + to.dy) / 2)));
-        return a.copyWith(shape: ArrowShape(handle == 0 ? p : from, handle == 1 ? p : to, bend: bend));
-      case LineShape(:final from, :final to, :final bend):
-        if (handle == 2) return a.copyWith(shape: LineShape(from, to, bend: Offset(p.dx - (from.dx + to.dx) / 2, p.dy - (from.dy + to.dy) / 2)));
-        return a.copyWith(shape: LineShape(handle == 0 ? p : from, handle == 1 ? p : to, bend: bend));
+      // Ends and bend points move; a tangent handle steers the curve through its point (both sides together)
+      case ArrowShape() || LineShape():
+        final grips = CanvasPainter.curveGrips(a);
+        if (handle >= grips.length) return a;
+        final g = grips[handle];
+        final pts = [...a.curve!];
+        return switch (g.kind) {
+          GripKind.end || GripKind.bend => a.withCurve(pts..[g.index] = p),
+          GripKind.tangent => a.withTangent(g.index, (p - pts[g.index]) * 3.0 * g.side.toDouble()),
+          GripKind.add => a,
+        };
       default:
         final r = a.rect;
         if (r == null) return a;
@@ -454,17 +618,23 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     }
   }
 
-  Future<void> _addText(Offset p) async {
-    final text = await _promptText();
-    if (text == null || text.isEmpty) return;
-    _add(Annotation(id: _nextId++, scale: _density, shape: TextShape(text, p), color: _color, size: _size));
+  /// Text: starts typing right where you clicked.
+  void _addText(Offset p) {
+    final before = _state!;
+    final a = Annotation(id: _nextId++, scale: _density, shape: TextShape('', p), color: _color, size: _size,
+        textFormat: _formatFor('text'));
+    setState(() => _state = before.copyWith(annotations: [...before.annotations, a]));
+    _beginTextEdit(a, before: before, isNew: true);
   }
 
   /// A callout whose pointer tip is at `tip`. Dragged: the bubble is centred where the drag ended (`boxCenter`).
   /// A plain click (`boxCenter` null): the bubble sits up and to the right of the click (below it near the top).
-  void _addCallout(String text, Offset tip, Offset? boxCenter) {
+  /// Typing starts in the bubble straight away.
+  void _addCallout(Offset tip, Offset? boxCenter) {
     final fs = _size.fontSize * _density;
-    final r = CanvasPainter.calloutRect(text, Offset.zero, fs);
+    final probe = Annotation(id: -1, shape: const StepShape(Offset.zero), size: _size, scale: _density,
+        textFormat: _formatFor('callout'));
+    final r = CanvasPainter.calloutRect(CanvasPainter.typeHint, Offset.zero, probe); // placed for a few words of text
     Offset at;
     if (boxCenter != null) {
       at = boxCenter - r.center;
@@ -480,27 +650,82 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
       final dy = box.top < 0 ? -box.top : (box.bottom > s.image.height ? s.image.height - box.bottom : 0.0);
       at += Offset(dx, dy);
     }
-    _add(Annotation(id: _nextId++, scale: _density, shape: CalloutShape(text, at, tail: tip), color: _color, size: _size));
+    final before = _state!;
+    final a = Annotation(id: _nextId++, scale: _density, shape: CalloutShape('', at, tail: tip), color: _color, size: _size,
+        textFormat: _formatFor('callout'));
+    setState(() => _state = before.copyWith(annotations: [...before.annotations, a]));
+    _beginTextEdit(a, before: before, isNew: true);
+  }
+
+  static Shape _withText(Shape s, String text, List<TextRun> runs) => switch (s) {
+        TextShape(:final at) => TextShape(text, at, runs: runs),
+        CalloutShape(:final at, :final tail) => CalloutShape(text, at, tail: tail, runs: runs),
+        _ => s,
+      };
+
+  void _beginTextEdit(Annotation a, {required CanvasState before, required bool isNew}) {
+    final text = switch (a.shape) { TextShape(:final string) || CalloutShape(:final string) => string, _ => '' };
+    // Cursor at the end; highlighting text (drag, Shift+arrows, ⌘A) brings up the format bar
+    _textController.runs = CanvasPainter.runsOf(a);
+    _lastText = text;
+    _textController.value = TextEditingValue(text: text, selection: TextSelection.collapsed(offset: text.length));
+    setState(() { _textEdit = (id: a.id, before: before, isNew: isNew); _selection = a.id; _imageSelected = false; });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _textFocus.requestFocus());
+  }
+
+  void _insertNewline() {
+    final v = _textController.value;
+    final sel = v.selection.isValid ? v.selection : TextSelection.collapsed(offset: v.text.length);
+    _textController.value = TextEditingValue(
+      text: v.text.replaceRange(sel.start, sel.end, '\n'),
+      selection: TextSelection.collapsed(offset: sel.start + 1),
+    );
+  }
+
+  /// Live: the bubble (or text box) follows what is typed. Not an undo step by itself.
+  void _textChanged() {
+    final e = _textEdit;
+    final a = e == null ? null : _annotation(e.id);
+    if (a == null) return;
+    final text = _textController.text;
+    if (text != _lastText) {
+      _textController.runs = TextRuns.adjust(_lastText, text, _textController.runs);
+      _lastText = text;
+    }
+    final next = a.copyWith(shape: _withText(a.shape, text, _textController.runs));
+    setState(() => _state = _state!.copyWith(annotations: [for (final x in _state!.annotations) x.id == a.id ? next : x]));
+  }
+
+  /// Ends typing: the text becomes one undo step; an empty new one disappears; `cancel` (Esc) restores.
+  void _endTextEdit({bool cancel = false}) {
+    final e = _textEdit;
+    if (e == null) return;
+    final text = _textController.text.trim();
+    setState(() => _textEdit = null);
+    if (cancel || (text.isEmpty && e.isNew)) {
+      setState(() { _state = e.before; if (e.isNew) _selection = null; });
+    } else {
+      final a = _annotation(e.id);
+      if (a != null) {
+        _undo.add(e.before);
+        _redo.clear();
+        _clearCopied();
+        setState(() {
+          _state = _state!.copyWith(annotations: [
+            for (final x in _state!.annotations)
+              if (x.id != e.id) x
+              else if (text.isNotEmpty)
+                a.copyWith(shape: _withText(a.shape, text, TextRuns.adjust(_textController.text, text, _textController.runs))),
+          ]);
+          if (text.isEmpty) _selection = null; // emptied an existing one: it is removed
+        });
+      }
+    }
+    _focus.requestFocus();
   }
 
   void _addStep(Offset p) {
     _add(Annotation(id: _nextId++, scale: _density, shape: StepShape(p), color: _color, size: _size));
-  }
-
-  Future<String?> _promptText() {
-    final controller = TextEditingController();
-    return showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Text'),
-        content: TextField(controller: controller, autofocus: true, decoration: const InputDecoration(hintText: 'Enter text'),
-            onSubmitted: (v) => Navigator.pop(ctx, v)), // Return adds it
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, controller.text), child: const Text('Add')),
-        ],
-      ),
-    );
   }
 
   Future<void> _growAfterEdit() async {
@@ -523,6 +748,8 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
       _savedState = _state;
       _imageSelected = false;
       _canvasDrag = null;
+      _zoom = null; // a new image opens fitted
+      _pan = Offset.zero;
     });
     _clearCopied();
     await windowManager.setTitle('SnapLite — ${path.split('/').last}');
@@ -543,6 +770,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
   /// Copies the flattened image (no toast, as in the Swift app).
   /// Copies the flattened image; marching ants run around it instead of a toast (as in the Swift app).
   Future<void> _copyImage() async {
+    _endTextEdit();
     final png = await _flatPng();
     if (png == null) return;
     await Pasteboard.writeImage(png);
@@ -552,6 +780,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
 
   /// Saves back to the capture's file, or a new file in Pictures › SnapLite.
   Future<void> save() async {
+    _endTextEdit();
     final png = await _flatPng();
     if (png == null) return;
     final path = _path ?? AppController.newCapturePath();
@@ -638,14 +867,50 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     return recorder.endRecording().toImage(s.image.width, s.image.height);
   }
 
-  Future<void> _exportPng() async {
-    if (_state == null) return;
-    final flat = await _flatten();
-    final data = await flat.toByteData(format: ui.ImageByteFormat.png);
-    if (data == null) return;
-    final bytes = data.buffer.asUint8List();
-    await FileSaver.instance.saveFile(name: 'snaplite', bytes: bytes, fileExtension: 'png', mimeType: MimeType.png);
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Exported PNG')));
+  /// Save As in a chosen format (macOS: native panel with a Format menu); the capture's own file is untouched.
+  Future<void> saveAs() async {
+    _endTextEdit();
+    final png = await _flatPng();
+    if (png == null) return;
+    final name = _path?.split('/').last.replaceFirst(RegExp(r'\.[^.]+$'), '') ?? 'SnapLite';
+    if (!Platform.isMacOS) {
+      await FileSaver.instance.saveFile(name: name, bytes: png, fileExtension: 'png', mimeType: MimeType.png);
+      return;
+    }
+    try {
+      final saved = await Native.saveAs(png, name: name, density: _density);
+      if (saved != null) await Native.toast('Saved ${saved.split('/').last}');
+    } on PlatformException catch (e) {
+      await Native.toast(e.message ?? "Couldn't save", symbol: 'exclamationmark.triangle.fill');
+    }
+  }
+
+  /// Where to save the build-up GIF (the platform save panel); swapped out in tests.
+  @visibleForTesting
+  static Future<String?> Function(String fileName) pickGifPath = (fileName) => FilePicker.saveFile(
+      dialogTitle: 'Save Animated GIF', fileName: fileName, type: FileType.custom, allowedExtensions: ['gif']);
+
+  /// Save as Animated GIF: the original capture, then each addition appearing in the order it was made.
+  Future<void> saveAnimatedGif() async {
+    _endTextEdit();
+    final s = _state;
+    if (s == null) return;
+    if (s.annotations.isEmpty) {
+      await Native.toast('Add some markup first', symbol: 'exclamationmark.triangle.fill');
+      return;
+    }
+    final name = _path?.split('/').last.replaceFirst(RegExp(r'\.[^.]+$'), '') ?? 'SnapLite';
+    try {
+      var path = await pickGifPath('$name.gif');
+      if (path == null) return;
+      if (!path.toLowerCase().endsWith('.gif')) path = '$path.gif';
+      await Native.toast('Making GIF…', symbol: 'hourglass');
+      await File(path).writeAsBytes(await BuildUpGif.render(s));
+      await Native.toast('Saved ${path.split('/').last}');
+    } catch (e, st) {
+      debugPrint('GIF: $e\n$st');
+      await Native.toast("Couldn't make the GIF", symbol: 'exclamationmark.triangle.fill');
+    }
   }
 
   // ---- Canvas operations (flatten / flip / trim / crop / resize / color) ----
@@ -822,6 +1087,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
   }
 
   void _setTool(Tool t) {
+    _endTextEdit();
     if (t == Tool.grabText) {
       _copyAllText();
       return;
@@ -857,7 +1123,10 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
   @override
   bool get selectionIsCurved {
     final s = selected?.shape;
-    return switch (s) { ArrowShape(:final bend) || LineShape(:final bend) => bend != Offset.zero, _ => false };
+    return switch (s) {
+      ArrowShape(:final points) || LineShape(:final points) => points.isNotEmpty,
+      _ => false,
+    };
   }
 
   /// Color picks also restyle the selection.
@@ -865,7 +1134,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
   void pickColor(Color c, {bool refresh = true}) {
     setState(() => _color = c);
     final a = selected;
-    if (a != null && a.shape is! ImageShape) _replace(a.copyWith(color: c));
+    if (a != null && a.shape is! ImageShape) _restyleSelected(a.copyWith(color: c));
   }
 
   @override
@@ -875,7 +1144,16 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
   void pickSize(StrokeSize s) {
     setState(() => _size = s);
     final a = selected;
-    if (a != null) _replace(a.copyWith(size: s));
+    if (a == null) {
+      if (isTextual) setTextFormat(textFormat.withPoints(null));
+      if (styleKind != null) setArrowStyle(currentArrowStyle.withWidth(null)); // S / M / L replace a slider thickness
+      return;
+    }
+    _restyleSelected(a.isTextual
+        ? a.copyWith(size: s, textFormat: a.textFormat.withPoints(null))
+        : a.styleKind != null
+            ? a.copyWith(size: s, arrowStyle: a.arrowStyle.withWidth(null))
+            : a.copyWith(size: s));
   }
 
   /// Restyles the selection (undoable) and makes the style the default for its kind.
@@ -900,7 +1178,8 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     }
     final a = selected;
     if (a == null) return;
-    _replace(a.copyWith(color: q.colorValue, size: q.size, arrowStyle: a.styleKind != null ? q.style : null));
+    _restyleSelected(a.copyWith(color: q.colorValue, size: q.size, arrowStyle: a.styleKind != null ? q.style : null,
+        textFormat: a.isTextual ? a.textFormat.withPoints(null) : null));
   }
 
   @override
@@ -931,7 +1210,6 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     final kind = a != null ? QuickKind.of(a) : QuickKind.ofTool(_tool);
     if (kind == null) return;
     await QuickStyles.save(QuickStyle(_color.toARGB32() & 0xFFFFFF, _size, currentArrowStyle), kind);
-    await QuickStyles.setCurrent(QuickStyles.mine);
     setState(() {});
     await Native.toast('Saved to My Styles', symbol: 'star.fill');
   }
@@ -948,6 +1226,56 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
   @override
   void quickSetChanged() => setState(() {});
 
+  /// Restyles the selection: one undo step normally; while it is being typed into, part of the typing
+  /// session (and the text field keeps the keyboard).
+  void _restyleSelected(Annotation next) {
+    if (_textEdit?.id == next.id) {
+      setState(() => _state = _state!.copyWith(annotations: [for (final x in _state!.annotations) x.id == next.id ? next : x]));
+      WidgetsBinding.instance.addPostFrameCallback((_) => _textFocus.requestFocus());
+    } else {
+      _replace(next);
+    }
+  }
+
+  /// The highlighted characters of the text being typed into (empty when nothing is highlighted).
+  @override
+  List<CharStyle> get selectedChars {
+    if (_formatBarTarget == null) return const [];
+    final sel = _textController.selection;
+    return TextRuns.expand(_textController.text.length, _textController.runs).sublist(sel.start, sel.end);
+  }
+
+  /// Colour / bold / italic / underline on just the highlighted characters (part of the typing session).
+  @override
+  void styleSelection(CharStyle Function(CharStyle) change) {
+    final sel = _textController.selection;
+    if (_textEdit == null || !sel.isValid || sel.isCollapsed) return;
+    _textController.setRuns(TextRuns.apply(_textController.text.length, _textController.runs, sel.start, sel.end, change));
+    WidgetsBinding.instance.addPostFrameCallback((_) => _textFocus.requestFocus());
+  }
+
+  @override
+  bool get isTextual => selected?.isTextual ?? (_tool == Tool.text || _tool == Tool.callout);
+  @override
+  bool get isCallout => selected != null ? selected!.shape is CalloutShape : _tool == Tool.callout;
+
+  @override
+  TextFormat get textFormat {
+    final a = selected;
+    if (a != null && a.isTextual) return a.textFormat;
+    return _formatFor(_tool == Tool.callout ? 'callout' : 'text');
+  }
+
+  /// Applies to the selected text/callout (live while typing) and becomes that tool's default.
+  @override
+  void setTextFormat(TextFormat f) {
+    final a = selected;
+    final kind = a != null && a.isTextual ? _textKind(a) : (_tool == Tool.callout ? 'callout' : 'text');
+    if (a != null && a.isTextual) _restyleSelected(a.copyWith(textFormat: f));
+    setState(() => _textFormats[kind] = f);
+    Native.setDataString('style.textFormat.$kind', jsonEncode(f.toJson()));
+  }
+
   // ---- UI ----
 
   /// Single-key tool shortcuts, as in the Swift app.
@@ -963,11 +1291,17 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
   Widget build(BuildContext context) {
     final state = _state;
     return CallbackShortcuts(
-      bindings: {
+      bindings: _textEdit != null ? const {} : {
         const SingleActivator(LogicalKeyboardKey.keyZ, meta: true): _undoAction,
         const SingleActivator(LogicalKeyboardKey.keyZ, meta: true, shift: true): _redoAction,
         const SingleActivator(LogicalKeyboardKey.keyC, meta: true): _copyImage,
         const SingleActivator(LogicalKeyboardKey.keyS, meta: true): save,
+        const SingleActivator(LogicalKeyboardKey.keyS, meta: true, shift: true): saveAs,
+        _cmd(LogicalKeyboardKey.equal): zoomIn,
+        _cmd(LogicalKeyboardKey.equal, shift: true): zoomIn, // ⌘+ on keyboards where + needs Shift
+        _cmd(LogicalKeyboardKey.minus): zoomOut,
+        _cmd(LogicalKeyboardKey.digit0): zoomToFit,
+        _cmd(LogicalKeyboardKey.digit1): zoomActualSize,
         const SingleActivator(LogicalKeyboardKey.keyO, meta: true): openImageDialog,
         const SingleActivator(LogicalKeyboardKey.keyW, meta: true): AppController.instance.onWindowClose,
         const SingleActivator(LogicalKeyboardKey.keyA, meta: true): selectImage,
@@ -1009,13 +1343,23 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     return LayoutBuilder(builder: (context, constraints) {
       const pad = 20.0;
       final iw = state.image.width.toDouble(), ih = state.image.height.toDouble();
-      final scale = math.max(0.01, math.min(math.min((constraints.maxWidth - pad * 2) / iw, (constraints.maxHeight - pad * 2) / ih), 1.0));
-      _viewScale = scale;
+      final view = Size(constraints.maxWidth, constraints.maxHeight);
+      final fit = math.max(0.01, math.min(math.min((view.width - pad * 2) / iw, (view.height - pad * 2) / ih), 1.0));
+      final scale = _zoom ?? fit;
       final fitted = Size(iw * scale, ih * scale);
-      final origin = Offset((constraints.maxWidth - fitted.width) / 2, (constraints.maxHeight - fitted.height) / 2);
+      final centred = Offset((view.width - fitted.width) / 2, (view.height - fitted.height) / 2);
+      // Centred on an axis where the image fits; otherwise pannable, but never further than its edge + pad
+      double axis(double c, double p, double viewLen, double len) =>
+          len + pad * 2 <= viewLen ? c : (c + p).clamp(viewLen - len - pad, pad).toDouble();
+      final origin = Offset(axis(centred.dx, _pan.dx, view.width, fitted.width),
+          axis(centred.dy, _pan.dy, view.height, fitted.height));
+      _pan = origin - centred; // drop pan that the clamp swallowed, so panning back responds at once
+      _viewScale = scale;
+      _viewOrigin = origin;
+      _viewSize = view;
       Offset toImage(Offset local) => (local - origin) / scale;
       final kind = StyleKind.ofTool(_tool);
-      return DragTarget<String>(
+      return ClipRect(child: DragTarget<String>(
         // A filmstrip thumbnail dropped anywhere over the canvas area
         onWillAcceptWithDetails: (d) => !d.data.toLowerCase().endsWith('.mov') && !d.data.toLowerCase().endsWith('.mp4'),
         onAcceptWithDetails: (d) => addOverlayFile(d.data, globalPosition: d.offset + const Offset(64, 48)),
@@ -1036,13 +1380,37 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
                 child: GestureDetector(
                   onSecondaryTapUp: (d) => _showCanvasMenu(d.globalPosition),
                   child: Listener(
+                    key: const ValueKey('snaplite-canvas'), // for widget tests
                     behavior: HitTestBehavior.opaque,
-                    onPointerDown: (e) { _focus.requestFocus(); if (e.buttons == 1) _down(toImage(e.localPosition)); },
-                    onPointerMove: (e) => _move(toImage(e.localPosition)),
-                    onPointerUp: (e) => _up(toImage(e.localPosition)),
+                    onPointerDown: (e) {
+                      _focus.requestFocus();
+                      if (_startsPan(e)) {
+                        _panGrab = e.localPosition;
+                      } else if (e.buttons == 1) {
+                        _down(toImage(e.localPosition));
+                      }
+                    },
+                    onPointerMove: (e) {
+                      if (_panGrab case final grab?) {
+                        _panBy(e.localPosition - grab);
+                        _panGrab = e.localPosition;
+                      } else {
+                        _move(toImage(e.localPosition));
+                      }
+                    },
+                    onPointerUp: (e) {
+                      if (_panGrab != null) {
+                        _panGrab = null;
+                      } else {
+                        _up(toImage(e.localPosition));
+                      }
+                    },
+                    onPointerSignal: _onPointerSignal,
+                    onPointerPanZoomStart: _onPanZoomStart,
+                    onPointerPanZoomUpdate: _onPanZoomUpdate,
                     child: CustomPaint(
                       painter: _PreviewPainter(
-                        base: CanvasPainter(state: state, selectionId: _selection, scale: scale),
+                        base: CanvasPainter(state: state, selectionId: _selection, scale: scale, hiddenTextId: _textEdit?.id),
                         origin: origin,
                         tool: _tool, color: _color, size: _size, scale: scale,
                         style: kind == null ? ArrowStyle.arrow : _styleFor(kind),
@@ -1050,17 +1418,185 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
                         canvasChrome: _showsCanvasHandles || _canvasDrag != null,
                         ants: _copied ? _ants : null,
                         canvasResize: _canvasDrag?.$2,
-                        boundsOfSelection: selected == null || selected!.rect != null ? null : _bounds(selected!),
+                        boundsOfSelection: _textEdit != null || selected == null || selected!.rect != null ? null : _bounds(selected!),
                       ),
                     ),
                   ),
                 ),
               ),
             ),
+            if (_textEdit != null) _textEditor(origin, scale),
+            if (_formatBarTarget case final a?) _formatBar(a, origin, scale, Size(constraints.maxWidth, constraints.maxHeight)),
+            if (_thicknessTarget case final a?) _thicknessSlider(a, origin, scale, Size(constraints.maxWidth, constraints.maxHeight)),
+            Positioned(right: 12, bottom: 12, child: _zoomPill()),
           ]),
         ),
-      );
+      ));
     });
+  }
+
+  /// − / percent / + in the corner; clicking the percent switches between Fit and 100%.
+  Widget _zoomPill() {
+    final scheme = Theme.of(context).colorScheme;
+    final label = _zoomed ? '${zoomPercent.round()}%' : 'Fit';
+    Widget icon(IconData i, String tip, VoidCallback onTap) => IconButton(
+        icon: Icon(i, size: 16), tooltip: tip, onPressed: onTap, visualDensity: VisualDensity.compact,
+        constraints: const BoxConstraints.tightFor(width: 28, height: 28), padding: EdgeInsets.zero);
+    final mod = Platform.isMacOS ? '⌘' : 'Ctrl+';
+    return Material(
+      key: const ValueKey('snaplite-zoom'),
+      color: scheme.surfaceContainerHigh.withValues(alpha: 0.92),
+      elevation: 2,
+      shape: const StadiumBorder(),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          icon(Icons.remove, 'Zoom out ($mod−)', zoomOut),
+          InkWell(
+            onTap: _zoomed ? zoomToFit : zoomActualSize,
+            customBorder: const StadiumBorder(),
+            child: Tooltip(
+              message: _zoomed ? 'Fit to window (${mod}0)' : 'Actual size (${mod}1)',
+              child: SizedBox(width: 48, child: Text(label, textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 12, fontFeatures: const [FontFeature.tabularFigures()], color: scheme.onSurface))),
+            ),
+          ),
+          icon(Icons.add, 'Zoom in ($mod+)', zoomIn),
+        ]),
+      ),
+    );
+  }
+
+  /// Clicking an arrow, line, box, ellipse or pen stroke shows the thickness slider beside it.
+  Annotation? get _thicknessTarget {
+    final a = selected;
+    return a != null && a.styleKind != null && _dragId == null && _textEdit == null ? a : null;
+  }
+
+  /// The area an annotation covers (image coords), for placing things beside it.
+  Rect _boxOf(Annotation a) {
+    final pts = a.curve ?? switch (a.shape) { PenShape(:final points) => points, _ => null };
+    if (pts == null || pts.isEmpty) return a.rect ?? Rect.zero;
+    final samples = a.curve != null ? CanvasPainter.curveSamples(pts, tangents: a.curveTangents) : pts;
+    var r = Rect.fromPoints(samples.first, samples.first);
+    for (final p in samples) {
+      r = r.expandToInclude(Rect.fromPoints(p, p));
+    }
+    return r;
+  }
+
+  CanvasState? _thicknessSnapshot; // state before a slider drag, for one undo step
+
+  Widget _thicknessSlider(Annotation a, Offset origin, double scale, Size area) {
+    final b = _boxOf(a);
+    final box = Rect.fromLTRB(origin.dx + b.left * scale, origin.dy + b.top * scale, origin.dx + b.right * scale,
+        origin.dy + b.bottom * scale);
+    const w = _ThicknessCard.width, h = _ThicknessCard.height, gap = 14.0;
+    var left = box.right + gap;
+    if (left + w > area.width - 8) left = box.left - gap - w;
+    left = left.clamp(8.0, math.max(8.0, area.width - w - 8));
+    final top = (box.center.dy - h / 2).clamp(8.0, math.max(8.0, area.height - h - 8)).toDouble();
+    return Positioned(
+      left: left,
+      top: top,
+      child: _ThicknessCard(
+        value: (a.arrowStyle.width ?? a.size.line).clamp(1.0, 40.0),
+        color: a.color,
+        onStart: () => _thicknessSnapshot = _state,
+        onChanged: _setThickness,
+        onEnd: () {
+          final before = _thicknessSnapshot;
+          _thicknessSnapshot = null;
+          if (before != null && !identical(before, _state)) {
+            _undo.add(before);
+            _redo.clear();
+          }
+          final k = selected?.styleKind;
+          if (k != null) Native.setDataString('style.${k.name}', jsonEncode(_styleFor(k).toJson())); // remembered
+        },
+      ),
+    );
+  }
+
+  /// Live while the slider moves: restyles the selection and becomes the default for its kind.
+  void _setThickness(double points) {
+    final a = selected;
+    final k = a?.styleKind;
+    if (a == null || k == null) return;
+    final style = a.arrowStyle.withWidth(points);
+    _replace(a.copyWith(arrowStyle: style), snapshot: false);
+    setState(() => _styleDefaults[k] = style);
+  }
+
+  /// The format bar appears only while some of the typed text is highlighted (like a mini toolbar).
+  Annotation? get _formatBarTarget {
+    final e = _textEdit;
+    if (e == null) return null;
+    final sel = _textController.selection;
+    if (!sel.isValid || sel.isCollapsed) return null;
+    return _annotation(e.id);
+  }
+
+  /// The format bar sits just right of the text (left if there's no room), kept inside the canvas area.
+  Widget _formatBar(Annotation a, Offset origin, double scale, Size area) {
+    final b = _bounds(a) ?? Rect.zero;
+    final box = Rect.fromLTRB(origin.dx + b.left * scale, origin.dy + b.top * scale, origin.dx + b.right * scale,
+        origin.dy + b.bottom * scale);
+    const gap = 12.0, width = TextFormatBar.width, height = 120.0;
+    var left = box.right + gap;
+    if (left + width > area.width - 8) left = box.left - gap - width;
+    left = left.clamp(8.0, math.max(8.0, area.width - width - 8));
+    final top = box.top.clamp(8.0, math.max(8.0, area.height - height - 8)).toDouble();
+    return Positioned(left: left, top: top, child: TextFormatBar(host: this));
+  }
+
+  /// The inline text field, laid exactly over the text of the annotation being typed into.
+  Widget _textEditor(Offset origin, double scale) {
+    final a = _annotation(_textEdit!.id);
+    if (a == null) return const SizedBox.shrink();
+    final (at, isCallout) = switch (a.shape) {
+      TextShape(:final at) => (at, false),
+      CalloutShape(:final at) => (at, true),
+      _ => (Offset.zero, false),
+    };
+    final color = isCallout ? CanvasPainter.calloutTextColor(a) : a.color;
+    // Same style as the drawn text (font, weight, line height, alignment), scaled to the view
+    final viewA = Annotation(id: a.id, shape: a.shape, color: a.color, size: a.size, scale: a.scale * scale, textFormat: a.textFormat);
+    final style = CanvasPainter.textStyle(viewA, color, halo: !isCallout);
+    final fs = viewA.fontSize;
+    final measure = CanvasPainter.textLayout(_textController.text.isEmpty ? CanvasPainter.typeHint : _textController.text, viewA, color);
+    final align = a.textFormat.align;
+    final extra = fs * 0.6; // room for the caret, kept on the side that doesn't move the text
+    final shift = switch (align) { TextAlign.center => extra / 2, TextAlign.right => extra, _ => 0.0 };
+    return Positioned(
+      left: origin.dx + at.dx * scale - shift,
+      top: origin.dy + at.dy * scale,
+      width: measure.width + extra,
+      child: CallbackShortcuts(
+        bindings: {
+          const SingleActivator(LogicalKeyboardKey.escape): () => _endTextEdit(cancel: true),
+          // Return keeps the text; Option+Return (Alt+Enter on Windows/Linux) or Shift+Return adds a line
+          const SingleActivator(LogicalKeyboardKey.enter): _endTextEdit,
+          const SingleActivator(LogicalKeyboardKey.numpadEnter): _endTextEdit,
+          const SingleActivator(LogicalKeyboardKey.enter, alt: true): _insertNewline,
+          const SingleActivator(LogicalKeyboardKey.enter, shift: true): _insertNewline,
+          const SingleActivator(LogicalKeyboardKey.numpadEnter, alt: true): _insertNewline,
+        },
+        child: TextField(
+          key: const ValueKey('snaplite-inline-text'), // for widget tests
+          controller: _textController,
+          focusNode: _textFocus,
+          style: style,
+          textAlign: align,
+          maxLines: null, // grows with each new line
+          keyboardType: TextInputType.multiline,
+          cursorColor: color,
+          cursorWidth: math.max(1.5, fs / 14),
+          decoration: InputDecoration.collapsed(hintText: CanvasPainter.typeHint, hintStyle: style.copyWith(color: color.withValues(alpha: 0.55))),
+          onTapOutside: (_) {}, // a click on the canvas ends typing (see _down)
+        ),
+      ),
+    );
   }
 
   static const _toolInfo = <Tool, (IconData, String)>{
@@ -1104,6 +1640,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
                   ('overlay', Icons.add_photo_alternate_outlined, 'Add Image…'),
                   ('flatten', Icons.layers_clear_outlined, 'Flatten All'),
                   ('export', Icons.ios_share, 'Save As…'),
+                  ('gif', Icons.gif_box_outlined, 'Save as Animated GIF…'),
                   ('settings', Icons.settings_outlined, 'Settings…'),
                 ],
                 onSelected: (v) {
@@ -1113,7 +1650,8 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
                     case 'open': openImageDialog();
                     case 'overlay': _addOverlay();
                     case 'flatten': _flattenInPlace();
-                    case 'export': _exportPng();
+                    case 'export': saveAs();
+                    case 'gif': saveAnimatedGif();
                     case 'settings': Native.shell('settings');
                   }
                 },
@@ -1327,4 +1865,79 @@ class _PreviewPainter extends CustomPainter {
 
 extension _FirstOrNull<E> on Iterable<E> {
   E? get firstOrNull => isEmpty ? null : first;
+}
+
+/// The inline text field's controller: shows each run's formatting while typing.
+class _RichTextController extends TextEditingController {
+  List<TextRun> runs = const [];
+
+  void setRuns(List<TextRun> value) {
+    runs = value;
+    notifyListeners(); // repaint the field and update the annotation
+  }
+
+  @override
+  TextSpan buildTextSpan({required BuildContext context, TextStyle? style, required bool withComposing}) {
+    if (runs.isEmpty) return super.buildTextSpan(context: context, style: style, withComposing: withComposing);
+    return CanvasPainter.richSpan(text, runs, style ?? const TextStyle());
+  }
+}
+
+/// The thickness slider shown beside a selected arrow, line or shape: a slim pill, drag up for thicker,
+/// down for thinner.
+class _ThicknessCard extends StatelessWidget {
+  static const width = 30.0, height = 156.0;
+  final double value; // points
+  final Color color;
+  final VoidCallback onStart, onEnd;
+  final ValueChanged<double> onChanged;
+  const _ThicknessCard({required this.value, required this.color, required this.onStart, required this.onChanged,
+      required this.onEnd});
+
+  @override
+  Widget build(BuildContext context) {
+    final s = Theme.of(context).colorScheme;
+    return Container(
+      width: width,
+      height: height,
+      padding: const EdgeInsets.only(top: 6, bottom: 4),
+      decoration: BoxDecoration(
+        color: s.surface.withValues(alpha: 0.9),
+        borderRadius: BorderRadius.circular(width / 2),
+        border: Border.all(color: s.outlineVariant.withValues(alpha: 0.7), width: 0.8),
+        boxShadow: const [BoxShadow(color: Color(0x22000000), blurRadius: 6, offset: Offset(0, 1))],
+      ),
+      child: Column(children: [
+        Text('${value.round()}', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: s.onSurfaceVariant)),
+        Expanded(
+          child: Tooltip(
+            message: 'Thickness (pt): drag up for thicker, down for thinner',
+            waitDuration: const Duration(milliseconds: 700),
+            child: RotatedBox(
+              quarterTurns: 3, // bottom = thin, top = thick
+              child: SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  trackHeight: 2.5,
+                  activeTrackColor: color,
+                  inactiveTrackColor: s.outlineVariant,
+                  thumbColor: Colors.white,
+                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6, elevation: 1.5, pressedElevation: 2),
+                  overlayShape: SliderComponentShape.noOverlay,
+                ),
+                child: Slider(
+                  key: const ValueKey('snaplite-thickness'),
+                  min: 1,
+                  max: 40,
+                  value: value,
+                  onChangeStart: (_) => onStart(),
+                  onChanged: onChanged,
+                  onChangeEnd: (_) => onEnd(),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ]),
+    );
+  }
 }

@@ -24,6 +24,12 @@ abstract class PanelHost {
   void saveCurrentStyle();
   void clearSavedStyles();
   void quickSetChanged();
+  bool get isTextual; // Text or Callout (selected, or the active tool)
+  bool get isCallout;
+  TextFormat get textFormat;
+  void setTextFormat(TextFormat f);
+  List<CharStyle> get selectedChars; // highlighted characters while typing
+  void styleSelection(CharStyle Function(CharStyle) change);
 }
 
 /// The right-hand panel, as in the Swift app: Styles for the current kind, then its properties.
@@ -88,13 +94,13 @@ class PropertiesPanel extends StatelessWidget {
         _row(context, 'Theme', [
           _Dropdown<String>(
             width: 128,
-            value: QuickStyles.currentSet,
-            items: [for (final s in QuickStyles.sets) (s.$1, s.$1, null), (QuickStyles.mine, QuickStyles.mine, null)],
+            value: QuickStyles.themeSet,
+            items: [for (final s in QuickStyles.sets) (s.$1, s.$1, null)],
             onChanged: (v) async { await QuickStyles.setCurrent(v); host.quickSetChanged(); },
           ),
           const SizedBox(width: 4),
           PopupMenuButton<String>(
-            tooltip: 'Save or clear your own styles',
+            tooltip: 'My Styles',
             icon: const Icon(Icons.settings_outlined, size: 18),
             iconSize: 18,
             padding: EdgeInsets.zero,
@@ -106,12 +112,21 @@ class PropertiesPanel extends StatelessWidget {
           ),
         ]),
       ]);
-      final presets = QuickStyles.presets(kind);
-      kids.add(presets.isEmpty
-          ? _note(context, 'No saved styles yet. Style an annotation, then ⚙ › Save Current Style.')
-          : Wrap(spacing: 4, runSpacing: 4, children: [
-              for (final q in presets) _QuickTile(q: q, kind: kind, onTap: () => host.applyQuickStyle(q)),
-            ]));
+      // The theme's built-in styles, then My Styles (your own saved looks) right below
+      final current = QuickStyle(host.color.toARGB32() & 0xFFFFFF, host.size,
+          host.styleKind != null ? host.currentArrowStyle : ArrowStyle.arrow);
+      bool isCurrent(QuickStyle q) =>
+          q.color == current.color && q.size == current.size && (host.styleKind == null || q.style == current.style);
+      kids.add(Wrap(spacing: 4, runSpacing: 4, children: [
+        for (final q in QuickStyles.presets(kind, current: host.styleKind != null ? host.currentArrowStyle : null, size: host.size))
+          _QuickTile(q: q, kind: kind, current: isCurrent(q), onTap: () => host.applyQuickStyle(q)),
+      ]));
+      final mine = QuickStyles.saved(kind);
+      kids.add(_heading(context, 'My Styles', small: true));
+      kids.add(Wrap(spacing: 4, runSpacing: 4, children: [
+        for (final q in mine) _QuickTile(q: q, kind: kind, current: isCurrent(q), onTap: () => host.applyQuickStyle(q)),
+        _AddStyleTile(onTap: host.saveCurrentStyle, saved: mine.any(isCurrent)),
+      ]));
       kids.add(_separator(context));
     }
 
@@ -150,6 +165,9 @@ class PropertiesPanel extends StatelessWidget {
           ),
         ]),
       ]);
+
+      // A selected text/callout gets the floating format bar beside it; here only the tool's defaults
+      if (host.isTextual && host.selected == null) kids.addAll(_textSection(context));
 
       final styleKind = host.styleKind;
       if (styleKind != null) {
@@ -191,7 +209,7 @@ class PropertiesPanel extends StatelessWidget {
           if (isLine)
             _row(context, '', [
               Tooltip(
-                message: 'Remove the curve (drag the round middle handle to bend)',
+                message: 'Remove all bend points (drag a + on the arrow, or double-click it, to bend it)',
                 child: _PillButton(icon: Icons.horizontal_rule, label: 'Straighten', onTap: host.selectionIsCurved ? host.straighten : null),
               ),
             ]),
@@ -213,6 +231,73 @@ class PropertiesPanel extends StatelessWidget {
         ]),
       ),
     );
+  }
+
+  /// Fonts installed on every Mac (others fall back to the system font).
+  static const fonts = <(String, String)>[
+    ('', 'System'), ('Helvetica Neue', 'Helvetica Neue'), ('Avenir Next', 'Avenir Next'), ('Futura', 'Futura'),
+    ('Georgia', 'Georgia'), ('Times New Roman', 'Times New Roman'), ('Menlo', 'Menlo'), ('Courier New', 'Courier New'),
+    ('Marker Felt', 'Marker Felt'), ('Chalkboard SE', 'Chalkboard'),
+  ];
+
+  static const textColors = <(String, Color?)>[
+    ('Automatic (contrasts with the bubble)', null), ('White', Color(0xFFFFFFFF)), ('Black', Color(0xFF000000)),
+    ('Yellow', Color(0xFFFFCC00)), ('Red', Color(0xFFFF3B30)), ('Blue', Color(0xFF007AFF)),
+  ];
+
+  /// Font, exact size, bold / italic / underline, alignment, and the callout text colour or the text shadow.
+  List<Widget> _textSection(BuildContext context) {
+    final f = host.textFormat;
+    final sizePt = f.points ?? host.size.fontSize;
+    final scheme = Theme.of(context).colorScheme;
+    return [
+      _separator(context),
+      _heading(context, 'Text', small: true),
+      _row(context, 'Font', [
+        _Dropdown<String>(
+          value: f.family,
+          items: [
+            for (final (family, label) in fonts)
+              (family, label, Text('Aa', style: TextStyle(fontFamily: family.isEmpty ? null : family, fontSize: 14, fontWeight: FontWeight.w600))),
+          ],
+          onChanged: (v) => host.setTextFormat(f.copyWith(family: v)),
+        ),
+      ]),
+      _row(context, 'Points', [
+        _Stepper(
+          value: sizePt,
+          onChanged: (v) => host.setTextFormat(f.withPoints(v.clamp(8, 200).toDouble())),
+        ),
+      ]),
+      _row(context, 'Style', [
+        _Toggle(icon: Icons.format_bold, tooltip: 'Bold', on: f.bold, onTap: () => host.setTextFormat(f.copyWith(bold: !f.bold))),
+        const SizedBox(width: 4),
+        _Toggle(icon: Icons.format_italic, tooltip: 'Italic', on: f.italic, onTap: () => host.setTextFormat(f.copyWith(italic: !f.italic))),
+        const SizedBox(width: 4),
+        _Toggle(icon: Icons.format_underlined, tooltip: 'Underline', on: f.underline,
+            onTap: () => host.setTextFormat(f.copyWith(underline: !f.underline))),
+      ]),
+      _row(context, 'Align', [
+        for (final (align, icon, tip) in const [
+          (TextAlign.left, Icons.format_align_left, 'Left'),
+          (TextAlign.center, Icons.format_align_center, 'Centre'),
+          (TextAlign.right, Icons.format_align_right, 'Right'),
+        ]) ...[
+          _Toggle(icon: icon, tooltip: tip, on: f.align == align, onTap: () => host.setTextFormat(f.copyWith(align: align))),
+          const SizedBox(width: 4),
+        ],
+      ]),
+      if (host.isCallout)
+        _row(context, 'Text colour', [
+          Wrap(spacing: 5, children: [
+            for (final (name, c) in textColors)
+              _ColorDot(name: name, color: c, selected: f.textColor?.toARGB32() == c?.toARGB32(),
+                  onTap: () => host.setTextFormat(f.withTextColor(c))),
+          ]),
+        ])
+      else
+        _check(context, 'Shadow', f.shadow, (v) => host.setTextFormat(f.copyWith(shadow: v))),
+    ];
   }
 
   Widget _headMenu(ArrowStyle style, {required bool start}) => _Dropdown<ArrowHead>(
@@ -335,6 +420,211 @@ class _Segmented<T> extends StatelessWidget {
   }
 }
 
+/// The compact format card shown beside a text or callout while it is selected or being typed into.
+class TextFormatBar extends StatelessWidget {
+  static const width = 262.0;
+  final PanelHost host;
+  const TextFormatBar({super.key, required this.host});
+
+  @override
+  Widget build(BuildContext context) {
+    final f = host.textFormat;
+    final scheme = Theme.of(context).colorScheme;
+    final sizePt = f.points ?? host.size.fontSize;
+    Widget gap([double w = 4]) => SizedBox(width: w);
+    final chars = host.selectedChars;
+    bool all(bool Function(CharStyle c) on) => chars.isNotEmpty && chars.every(on);
+    final bold = all((c) => c.bold ?? f.bold), italic = all((c) => c.italic ?? f.italic);
+    final underline = all((c) => c.underline ?? f.underline);
+    final colors = {for (final c in chars) c.color?.toARGB32()};
+    final selectedColor = colors.length == 1 ? colors.first : -1; // -1: mixed
+    CharStyle withBold(CharStyle c, bool v) => (color: c.color, bold: v, italic: c.italic, underline: c.underline);
+    CharStyle withItalic(CharStyle c, bool v) => (color: c.color, bold: c.bold, italic: v, underline: c.underline);
+    CharStyle withUnderline(CharStyle c, bool v) => (color: c.color, bold: c.bold, italic: c.italic, underline: v);
+    CharStyle withColor(CharStyle c, Color? v) => (color: v, bold: c.bold, italic: c.italic, underline: c.underline);
+    return Material(
+      color: scheme.surface,
+      elevation: 6,
+      shadowColor: Colors.black38,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        width: width,
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(borderRadius: BorderRadius.circular(10), border: Border.all(color: scheme.outlineVariant)),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            _Dropdown<String>(
+              width: 128,
+              value: f.family,
+              items: [
+                for (final (family, label) in PropertiesPanel.fonts)
+                  (family, label, Text('Aa', style: TextStyle(fontFamily: family.isEmpty ? null : family, fontSize: 14, fontWeight: FontWeight.w600))),
+              ],
+              onChanged: (v) => host.setTextFormat(f.copyWith(family: v)),
+            ),
+            gap(6),
+            _Stepper(value: sizePt, onChanged: (v) => host.setTextFormat(f.withPoints(v.clamp(8, 200).toDouble()))),
+          ]),
+          const SizedBox(height: 6),
+          Row(children: [
+            _Toggle(icon: Icons.format_bold, tooltip: 'Bold', on: bold, onTap: () => host.styleSelection((c) => withBold(c, !bold))),
+            gap(),
+            _Toggle(icon: Icons.format_italic, tooltip: 'Italic', on: italic, onTap: () => host.styleSelection((c) => withItalic(c, !italic))),
+            gap(),
+            _Toggle(icon: Icons.format_underlined, tooltip: 'Underline', on: underline,
+                onTap: () => host.styleSelection((c) => withUnderline(c, !underline))),
+            gap(12),
+            for (final (align, icon, tip) in const [
+              (TextAlign.left, Icons.format_align_left, 'Align left'),
+              (TextAlign.center, Icons.format_align_center, 'Centre'),
+              (TextAlign.right, Icons.format_align_right, 'Align right'),
+            ]) ...[
+              _Toggle(icon: icon, tooltip: tip, on: f.align == align, onTap: () => host.setTextFormat(f.copyWith(align: align))),
+              gap(),
+            ],
+          ]),
+          const SizedBox(height: 6),
+          Row(children: [
+            for (final (name, c) in PropertiesPanel.textColors) ...[
+              _ColorDot(
+                name: c == null ? (host.isCallout ? name : 'Same as the text colour') : name,
+                color: c,
+                selected: selectedColor == c?.toARGB32(),
+                onTap: () => host.styleSelection((ch) => withColor(ch, c)),
+              ),
+              gap(5),
+            ],
+            if (!host.isCallout) ...[
+              const Spacer(),
+              _Toggle(icon: Icons.blur_on, tooltip: 'Shadow behind the text', on: f.shadow,
+                  onTap: () => host.setTextFormat(f.copyWith(shadow: !f.shadow))),
+            ],
+          ]),
+        ]),
+      ),
+    );
+  }
+}
+
+/// A round colour choice; `color` null = automatic (half white, half black).
+class _ColorDot extends StatelessWidget {
+  final String name;
+  final Color? color;
+  final bool selected;
+  final VoidCallback onTap;
+  const _ColorDot({required this.name, required this.color, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Tooltip(
+      message: name,
+      waitDuration: const Duration(milliseconds: 500),
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: 20, height: 20,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: color,
+            gradient: color == null ? const LinearGradient(colors: [Colors.white, Colors.white, Colors.black, Colors.black],
+                stops: [0, 0.5, 0.5, 1], begin: Alignment.topLeft, end: Alignment.bottomRight) : null,
+            border: Border.all(color: scheme.outlineVariant),
+            boxShadow: selected ? [BoxShadow(color: scheme.primary, spreadRadius: 2.5), BoxShadow(color: scheme.surface, spreadRadius: 1)] : null,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A square on/off button (bold, italic, alignment…).
+class _Toggle extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final bool on;
+  final VoidCallback onTap;
+  const _Toggle({required this.icon, required this.tooltip, required this.on, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final s = Theme.of(context).colorScheme;
+    return Tooltip(
+      message: tooltip,
+      waitDuration: const Duration(milliseconds: 500),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(6),
+        child: Container(
+          width: 30, height: 28,
+          decoration: BoxDecoration(
+            color: on ? s.primary.withValues(alpha: 0.16) : s.surface,
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: on ? s.primary : s.outlineVariant),
+          ),
+          child: Icon(icon, size: 17, color: on ? s.primary : s.onSurfaceVariant),
+        ),
+      ),
+    );
+  }
+}
+
+/// − value + for the exact point size; the value can also be typed.
+class _Stepper extends StatefulWidget {
+  final double value;
+  final ValueChanged<double> onChanged;
+  const _Stepper({required this.value, required this.onChanged});
+  @override
+  State<_Stepper> createState() => _StepperState();
+}
+
+class _StepperState extends State<_Stepper> {
+  late final _c = TextEditingController(text: _fmt(widget.value));
+  static String _fmt(double v) => v == v.roundToDouble() ? v.toInt().toString() : v.toStringAsFixed(1);
+
+  @override
+  void didUpdateWidget(covariant _Stepper old) {
+    super.didUpdateWidget(old);
+    if (old.value != widget.value) _c.text = _fmt(widget.value);
+  }
+
+  void _submit(String t) {
+    final v = double.tryParse(t.trim());
+    if (v != null) widget.onChanged(v);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = Theme.of(context).colorScheme;
+    Widget btn(IconData i, double d) => InkWell(
+          onTap: () => widget.onChanged(widget.value + d),
+          borderRadius: BorderRadius.circular(6),
+          child: SizedBox(width: 26, height: 28, child: Icon(i, size: 16, color: s.onSurfaceVariant)),
+        );
+    return Container(
+      height: 28,
+      decoration: BoxDecoration(color: s.surface, borderRadius: BorderRadius.circular(7), border: Border.all(color: s.outlineVariant)),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        btn(Icons.remove, -2),
+        SizedBox(
+          width: 40,
+          child: TextField(
+            controller: _c,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 12.5),
+            decoration: const InputDecoration.collapsed(hintText: ''),
+            keyboardType: TextInputType.number,
+            onSubmitted: _submit,
+            onTapOutside: (_) => _submit(_c.text),
+          ),
+        ),
+        btn(Icons.add, 2),
+        Padding(padding: const EdgeInsets.only(right: 6), child: Text('pt', style: TextStyle(fontSize: 11, color: s.onSurfaceVariant))),
+      ]),
+    );
+  }
+}
+
 class _Swatch extends StatelessWidget {
   final Color color;
   final String name;
@@ -389,8 +679,9 @@ class _PillButton extends StatelessWidget {
 class _QuickTile extends StatefulWidget {
   final QuickStyle q;
   final QuickKind kind;
+  final bool current; // matches the style in use: outlined
   final VoidCallback onTap;
-  const _QuickTile({required this.q, required this.kind, required this.onTap});
+  const _QuickTile({required this.q, required this.kind, required this.onTap, this.current = false});
   @override
   State<_QuickTile> createState() => _QuickTileState();
 }
@@ -410,8 +701,37 @@ class _QuickTileState extends State<_QuickTile> {
           decoration: BoxDecoration(
             color: _hover ? Theme.of(context).colorScheme.surfaceContainerHighest : Colors.transparent,
             borderRadius: BorderRadius.circular(6),
+            border: widget.current ? Border.all(color: Theme.of(context).colorScheme.primary, width: 1.5) : null,
           ),
           child: CustomPaint(painter: _TilePainter(widget.q, widget.kind)),
+        ),
+      ),
+    );
+  }
+}
+
+/// "+": saves the current colour, size and line style to My Styles.
+class _AddStyleTile extends StatelessWidget {
+  final VoidCallback onTap;
+  final bool saved; // the current style is already in My Styles
+  const _AddStyleTile({required this.onTap, required this.saved});
+
+  @override
+  Widget build(BuildContext context) {
+    final s = Theme.of(context).colorScheme;
+    return Tooltip(
+      message: saved ? 'This style is already in My Styles' : 'Save the current style to My Styles',
+      waitDuration: const Duration(milliseconds: 400),
+      child: InkWell(
+        onTap: saved ? null : onTap,
+        borderRadius: BorderRadius.circular(6),
+        child: Container(
+          width: 50, height: 41,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: s.outlineVariant, width: 1.2),
+          ),
+          child: Icon(saved ? Icons.check : Icons.add, size: 18, color: s.onSurfaceVariant.withValues(alpha: saved ? 0.5 : 1)),
         ),
       ),
     );

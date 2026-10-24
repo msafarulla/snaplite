@@ -11,8 +11,15 @@ class CanvasPainter extends CustomPainter {
   final CanvasState state;
   final int? selectionId;
   final double scale; // view points per image point, for crisp 1px handles
+  final int? hiddenTextId; // being typed into: the inline text field draws its text
+  /// For the build-up GIF: how far each annotation has appeared (id → 0…1; missing = not yet).
+  /// Null draws everything as it is.
+  final Map<int, double>? progress;
 
-  CanvasPainter({required this.state, required this.selectionId, required this.scale});
+  CanvasPainter({required this.state, required this.selectionId, required this.scale, this.hiddenTextId,
+      this.progress});
+
+  double _shown(Annotation a) => progress == null ? 1 : progress![a.id] ?? 0;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -29,13 +36,15 @@ class CanvasPainter extends CustomPainter {
     canvas.drawImage(img, Offset.zero, Paint());
 
     // Blur patches first, then spotlight dimming, then the rest in order.
-    final spotlights = <Rect>[];
+    final spotlights = <(Rect, double)>[];
     for (final a in state.annotations) {
+      final t = _shown(a);
+      if (t <= 0) continue;
       switch (a.shape) {
         case BlurShape():
-          drawAnnotation(canvas, a, base: img);
+          drawPartial(canvas, a, t, base: img);
         case SpotlightShape(:final rect):
-          spotlights.add(rect);
+          spotlights.add((rect, t));
         default:
           break;
       }
@@ -44,18 +53,19 @@ class CanvasPainter extends CustomPainter {
 
     var step = 0;
     for (final a in state.annotations) {
+      if (a.shape is StepShape) step += 1; // steps keep their final numbers while the others are still hidden
+      final t = _shown(a);
+      if (t <= 0) continue;
       switch (a.shape) {
         case BlurShape():
         case SpotlightShape():
           continue;
         case StepShape():
-          step += 1;
-          drawAnnotation(canvas, a, number: step);
+          drawPartial(canvas, a, t, number: step);
         default:
-          drawAnnotation(canvas, a);
+          drawPartial(canvas, a, t, hideText: a.id == hiddenTextId);
       }
     }
-
   }
 
   /// The selection's handles (drawn separately so the image clip doesn't cut off handles on its edge).
@@ -69,11 +79,11 @@ class CanvasPainter extends CustomPainter {
   }
 
   /// Draws one annotation (also used for Quick Style tiles and previews).
-  static void drawAnnotation(Canvas canvas, Annotation a, {int number = 0, ui.Image? base}) {
+  static void drawAnnotation(Canvas canvas, Annotation a, {int number = 0, ui.Image? base, bool hideText = false}) {
     final w = a.lineWidth;
     switch (a.shape) {
-      case ArrowShape(:final from, :final to, :final bend) || LineShape(:final from, :final to, :final bend):
-        drawArrow(canvas, from, control(from, to, bend), to, a.arrowStyle, a.color, w);
+      case ArrowShape() || LineShape():
+        drawArrow(canvas, a.curve!, a.arrowStyle, a.color, w, tangents: a.curveTangents);
       case RectShape(:final rect):
         strokeStyled(canvas, Path()..addRRect(RRect.fromRectXY(rect, 2, 2)), a.arrowStyle, a.color, w);
       case EllipseShape(:final rect):
@@ -83,9 +93,9 @@ class CanvasPainter extends CustomPainter {
       case PenShape(:final points):
         strokeStyled(canvas, _smooth(points), a.arrowStyle, a.color, w);
       case TextShape(:final string, :final at):
-        _text(string, a.color, a.fontSize, halo: true).paint(canvas, at);
+        if (!hideText) textLayout(string, a, a.color, halo: true).paint(canvas, at);
       case CalloutShape(:final string, :final at, :final tail):
-        _callout(canvas, string, at, tail, a);
+        _callout(canvas, string, at, tail, a, hideText: hideText);
       case StepShape(:final center):
         _step(canvas, center, number, a);
       case BlurShape(:final rect):
@@ -104,17 +114,143 @@ class CanvasPainter extends CustomPainter {
     }
   }
 
-  // ---- Arrows and lines ----
-
-  /// Quadratic control point that makes the curve pass through mid + bend.
-  static Offset control(Offset a, Offset b, Offset bend) {
-    final mid = Offset((a.dx + b.dx) / 2 + bend.dx, (a.dy + b.dy) / 2 + bend.dy);
-    return Offset(2 * mid.dx - (a.dx + b.dx) / 2, 2 * mid.dy - (a.dy + b.dy) / 2);
+  /// An annotation part-way through appearing (`t` 0…1, for the build-up GIF): lines and outlines draw
+  /// themselves on, highlights wipe across, steps and callouts pop in, everything else fades in.
+  static void drawPartial(Canvas canvas, Annotation a, double t, {int number = 0, ui.Image? base, bool hideText = false}) {
+    if (t >= 1) return drawAnnotation(canvas, a, number: number, base: base, hideText: hideText);
+    if (t <= 0) return;
+    final w = a.lineWidth, along = Curves.easeInOut.transform(t);
+    switch (a.shape) {
+      case ArrowShape() || LineShape():
+        final pts = partialCurve(a.curve!, a.curveTangents, along);
+        if (pts != null) drawArrow(canvas, pts, a.arrowStyle, a.color, w);
+      case RectShape(:final rect):
+        strokeStyled(canvas, _drawnOn(Path()..addRRect(RRect.fromRectXY(rect, 2, 2)), along), a.arrowStyle, a.color, w);
+      case EllipseShape(:final rect):
+        strokeStyled(canvas, _drawnOn(Path()..addOval(rect), along), a.arrowStyle, a.color, w);
+      case PenShape(:final points):
+        strokeStyled(canvas, _drawnOn(_smooth(points), along), a.arrowStyle, a.color, w);
+      case HighlightShape(:final rect):
+        drawAnnotation(canvas, a.withRect(Rect.fromLTWH(rect.left, rect.top, rect.width * along, rect.height)));
+      case StepShape(:final center):
+        _popIn(canvas, center, t, () => drawAnnotation(canvas, a, number: number));
+      case CalloutShape(:final string, :final at):
+        _popIn(canvas, calloutRect(string, at, a).center, t, () => drawAnnotation(canvas, a, hideText: hideText));
+      default:
+        canvas.saveLayer(null, Paint()..color = Colors.black.withValues(alpha: t));
+        drawAnnotation(canvas, a, number: number, base: base, hideText: hideText);
+        canvas.restore();
+    }
   }
 
-  static Offset _quad(Offset a, Offset c, Offset b, double t) {
+  /// The first `fraction` of `path`, by length.
+  static Path _drawnOn(Path path, double fraction) {
+    final out = Path();
+    for (final m in path.computeMetrics()) {
+      out.addPath(m.extractPath(0, m.length * fraction), Offset.zero);
+    }
+    return out;
+  }
+
+  /// Grows from nothing around `center`, overshooting a little, while fading in.
+  static void _popIn(Canvas canvas, Offset center, double t, void Function() draw) {
+    final s = Curves.easeOutBack.transform(t);
+    if (s <= 0.01) return;
+    canvas.saveLayer(null, Paint()..color = Colors.black.withValues(alpha: math.min(1, t * 2)));
+    canvas.translate(center.dx, center.dy);
+    canvas.scale(s);
+    canvas.translate(-center.dx, -center.dy);
+    draw();
+    canvas.restore();
+  }
+
+  /// The first `fraction` (by length) of the curve through `pts`, as points close enough together to
+  /// redraw it with drawArrow (so the head rides along the tip); null while it is still too short.
+  static List<Offset>? partialCurve(List<Offset> pts, List<Offset?> tangents, double fraction) {
+    final s = curveSamples(pts, tangents: tangents, perSegment: 32);
+    final cum = <double>[0];
+    for (var i = 1; i < s.length; i++) {
+      cum.add(cum.last + (s[i] - s[i - 1]).distance);
+    }
+    final target = cum.last * fraction;
+    final out = <Offset>[s.first];
+    for (var i = 1; i < s.length; i++) {
+      if (cum[i] <= target) {
+        out.add(s[i]);
+      } else {
+        final f = (target - cum[i - 1]) / math.max(cum[i] - cum[i - 1], 1e-9);
+        out.add(Offset.lerp(s[i - 1], s[i], f)!);
+        break;
+      }
+    }
+    if (out.length < 2 || (out.last - out.first).distance <= 1) return null;
+    final every = math.max(1, (out.length / 40).ceil()); // keep the spline light
+    return [for (var i = 0; i < out.length - 1; i += every) out[i], out.last];
+  }
+
+  // ---- Arrows and lines ----
+
+  /// A point on the cubic a → b with controls c1, c2.
+  static Offset cubicPoint(Offset a, Offset c1, Offset c2, Offset b, double t) {
     final u = 1 - t;
-    return Offset(u * u * a.dx + 2 * u * t * c.dx + t * t * b.dx, u * u * a.dy + 2 * u * t * c.dy + t * t * b.dy);
+    return a * (u * u * u) + c1 * (3 * u * u * t) + c2 * (3 * u * t * t) + b * (t * t * t);
+  }
+
+  /// The curve's direction at point `i`: the one set by its tangent handles, or the automatic smooth one
+  /// (Catmull-Rom). Its handles sit a third of it away on each side, like Bézier control points.
+  static Offset tangentAt(List<Offset> pts, List<Offset?> tangents, int i) {
+    final set = i < tangents.length ? tangents[i] : null;
+    if (set != null) return set;
+    final n = pts.length;
+    if (n < 2) return Offset.zero;
+    if (i == 0) return (pts[1] - pts[0]) / 2;
+    if (i == n - 1) return (pts[n - 1] - pts[n - 2]) / 2;
+    return (pts[i + 1] - pts[i - 1]) / 2;
+  }
+
+  /// The cubic segments (a, c1, c2, b) of a smooth curve through every point; two points with automatic
+  /// tangents give a straight line.
+  static List<(Offset, Offset, Offset, Offset)> spline(List<Offset> pts, [List<Offset?> tangents = const []]) => [
+        for (var i = 0; i < pts.length - 1; i++)
+          (pts[i], pts[i] + tangentAt(pts, tangents, i) / 3, pts[i + 1] - tangentAt(pts, tangents, i + 1) / 3, pts[i + 1]),
+      ];
+
+  /// Points along the curve (for hit-testing and the tapered body).
+  static List<Offset> curveSamples(List<Offset> pts, {List<Offset?> tangents = const [], int perSegment = 24}) {
+    final segs = spline(pts, tangents);
+    return [
+      pts.first,
+      for (final (a, c1, c2, b) in segs)
+        for (var i = 1; i <= perSegment; i++) cubicPoint(a, c1, c2, b, i / perSegment),
+    ];
+  }
+
+  /// Where a new bend point can be pulled out: the middle of each stretch of the curve ("+" handles).
+  static List<Offset> addHandles(List<Offset> pts, [List<Offset?> tangents = const []]) =>
+      [for (final (a, c1, c2, b) in spline(pts, tangents)) cubicPoint(a, c1, c2, b, 0.5)];
+
+  /// Every handle of a selected arrow or line, in a fixed order: start, end, bend points, "+" handles,
+  /// then the tangent handles (two per bend point, one inward at each end).
+  static List<CurveGrip> curveGrips(Annotation a) {
+    final pts = a.curve!, tg = a.curveTangents, n = pts.length;
+    return [
+      (at: pts.first, kind: GripKind.end, index: 0, side: 0),
+      (at: pts.last, kind: GripKind.end, index: n - 1, side: 0),
+      for (var i = 1; i < n - 1; i++) (at: pts[i], kind: GripKind.bend, index: i, side: 0),
+      for (final (stretch, at) in addHandles(pts, tg).indexed) (at: at, kind: GripKind.add, index: stretch, side: 0),
+      for (var i = 0; i < n; i++) ...[
+        if (i > 0) (at: pts[i] - tangentAt(pts, tg, i) / 3, kind: GripKind.tangent, index: i, side: -1),
+        if (i < n - 1) (at: pts[i] + tangentAt(pts, tg, i) / 3, kind: GripKind.tangent, index: i, side: 1),
+      ],
+    ];
+  }
+
+  static Path _curvePath(List<Offset> pts, List<Offset?> tangents) {
+    final path = Path()..moveTo(pts.first.dx, pts.first.dy);
+    for (final (_, c1, c2, b) in spline(pts, tangents)) {
+      path.cubicTo(c1.dx, c1.dy, c2.dx, c2.dy, b.dx, b.dy);
+    }
+    return path;
   }
 
   static Offset _unit(Offset from, Offset to) {
@@ -166,9 +302,9 @@ class CanvasPainter extends CustomPainter {
   }
 
   /// A filled outline whose width grows from a thin tail to the head end.
-  static Path _taperedBody(Offset a, Offset c, Offset b, double width) {
-    const count = 40;
-    final points = [for (var i = 0; i <= count; i++) _quad(a, c, b, i / count)];
+  static Path _taperedBody(List<Offset> pts, List<Offset?> tangents, double width) {
+    final points = curveSamples(pts, tangents: tangents, perSegment: math.max(8, 40 ~/ (pts.length - 1)));
+    final count = points.length - 1;
     final left = <Offset>[], right = <Offset>[];
     for (var i = 0; i <= count; i++) {
       final t = i / count;
@@ -204,11 +340,12 @@ class CanvasPainter extends CustomPainter {
   }
 
   /// Runs `render` for the shadow (once, for the whole annotation), the contrast outline (widened by
-  /// `outlineWidth`) and the real color, like the Swift app's transparency-layer approach.
+  /// `outlineWidth`) and the real color, like the Swift app's transparency-layer approach. `bounds` (what
+  /// `render` covers) keeps the shadow's blur layer to that area instead of the whole canvas, which is slow.
   static void _styled(Canvas canvas, ArrowStyle style, Color color, double outlineWidth,
-      void Function(Color paint, double extra) render) {
+      void Function(Color paint, double extra) render, {Rect? bounds}) {
     if (style.shadow) {
-      canvas.saveLayer(null, Paint()
+      canvas.saveLayer(bounds?.inflate(outlineWidth * 2 + 8), Paint()
         ..colorFilter = ColorFilter.mode(Colors.black.withValues(alpha: 0.4), BlendMode.srcIn)
         ..imageFilter = ui.ImageFilter.blur(sigmaX: 1.6, sigmaY: 1.6));
       canvas.translate(1.5, 1.5);
@@ -234,23 +371,55 @@ class CanvasPainter extends CustomPainter {
     final p = dashed(path, style.pattern.dashes(w));
     _styled(canvas, style, color, math.max(1.5, w * 0.35), (paint, extra) {
       canvas.drawPath(p, _stroke(paint, w + extra * 2));
-    });
+    }, bounds: path.getBounds().inflate(w));
   }
 
-  /// An arrow or line along the quadratic a → b with control point c.
-  static void drawArrow(Canvas canvas, Offset a, Offset c, Offset b, ArrowStyle style, Color color, double w) {
-    if ((b - a).distance <= 1) return;
-    final towardEnd = (c - b).distance > 0.5 ? c : a;
-    final towardStart = (c - a).distance > 0.5 ? c : b;
-    final endWidth = style.tapered ? w * 1.8 : w;
-    // A tapered body is wider at the head end, but the head stays in proportion to the line
-    final end = _head(style.end, b, towardEnd, style.tapered ? w * 1.25 : w, style.headSize.scale);
-    final start = _head(style.start, a, towardStart, w, style.headSize.scale);
+  /// How wide a tapered body gets where it meets each kind of head (`hw`: the head's line width).
+  static double _taperFull(ArrowHead kind, double hw, double k, double w) {
+    final headWidth = math.max(14.0, hw * 5) * k * 1.1; // full width of the triangle-type heads
+    return switch (kind) {
+      ArrowHead.triangle => headWidth * 0.42,
+      ArrowHead.swept => headWidth * 0.36, // stays inside the swept-back notch
+      ArrowHead.triangleOutline => headWidth * 0.3,
+      ArrowHead.open => math.max(w * 1.5, headWidth * 0.22),
+      ArrowHead.dot => math.max(4.0, hw * 1.4) * k * 1.5, // 3/4 of the dot
+      ArrowHead.circle => math.max(5.0, hw * 1.8) * k * 1.1,
+      ArrowHead.square => math.max(4.0, hw * 1.4) * k * 1.6,
+      ArrowHead.diamond => math.max(8.0, hw * 2.8) * k * 0.9,
+      ArrowHead.bar => w * 1.6,
+      ArrowHead.none => w * 2.6,
+    };
+  }
 
-    final a2 = start.trim, b2 = end.trim;
-    final centerline = Path()..moveTo(a2.dx, a2.dy)..quadraticBezierTo(c.dx, c.dy, b2.dx, b2.dy);
-    final wedge = style.tapered ? _taperedBody(a2, c, b2, endWidth) : null;
-    final taperFull = endWidth * 1.8;
+  /// An arrow or line along a smooth curve through `pts` (start, bend points, end); each head points
+  /// along the curve at its end.
+  static void drawArrow(Canvas canvas, List<Offset> pts, ArrowStyle style, Color color, double w,
+      {List<Offset?> tangents = const []}) {
+    final a = pts.first, b = pts.last;
+    if (pts.length < 2 || ((b - a).distance <= 1 && pts.length == 2)) return;
+    final segs = spline(pts, tangents);
+    final (_, firstC1, _, _) = segs.first;
+    final (lastA, _, lastC2, _) = segs.last;
+    final towardEnd = (lastC2 - b).distance > 0.5 ? lastC2 : lastA;
+    final towardStart = (firstC1 - a).distance > 0.5 ? firstC1 : segs.first.$4;
+    final k = style.headSize.scale;
+    // Tapered: a slightly larger head, and a body that widens only as far as suits that head, so it
+    // never swamps small heads (dot, bar, open chevron) or fills a swept head's notch
+    final headW = style.tapered ? w * 1.45 : w;
+    final taperFull = style.tapered ? _taperFull(style.end, headW, k, w) : w; // body width where it meets the head
+    final endWidth = taperFull / 1.8; // _taperedBody's width parameter (its widest end is 1.8 × this)
+    var end = _head(style.end, b, towardEnd, headW, k);
+    if (style.tapered && style.end == ArrowHead.open) {
+      // The chevron's strokes match the body, which stops just behind its point
+      final u = _unit(towardEnd, b);
+      end = _Head(end.path, filled: false, lineWidth: math.max(headW, taperFull * 0.85), trim: b - u * (taperFull * 0.5));
+    }
+    final start = _head(style.start, a, towardStart, w, k);
+
+    // The body runs between the trimmed ends (hidden under the heads), through the same bend points
+    final body = [start.trim, ...pts.sublist(1, pts.length - 1), end.trim];
+    final centerline = _curvePath(body, tangents);
+    final wedge = style.tapered ? _taperedBody(body, tangents, endWidth) : null;
 
     _styled(canvas, style, color, math.max(1.5, w * 0.35), (paint, extra) {
       if (wedge != null) {
@@ -260,7 +429,7 @@ class CanvasPainter extends CustomPainter {
         } else {
           // A dashed tapered arrow: clip to the wedge and stroke a dashed centerline wide enough to fill it
           canvas.save();
-          canvas.clipPath(extra > 0 ? _taperedBody(a2, c, b2, endWidth + extra * 2) : wedge);
+          canvas.clipPath(extra > 0 ? _taperedBody(body, tangents, endWidth + extra * 2) : wedge);
           canvas.drawPath(dashed(centerline, style.pattern.dashes(taperFull)), _stroke(paint, taperFull * 1.04 + extra * 2));
           canvas.restore();
         }
@@ -277,7 +446,10 @@ class CanvasPainter extends CustomPainter {
           canvas.drawPath(path, _stroke(paint, part.lineWidth + extra * 2));
         }
       }
-    });
+    }, bounds: [
+      wedge?.getBounds() ?? centerline.getBounds(),
+      for (final part in [start, end]) ?part.path?.getBounds(),
+    ].reduce((a, b) => a.expandToInclude(b)).inflate(math.max(w, taperFull)));
   }
 
   // ---- Other shapes ----
@@ -298,30 +470,98 @@ class CanvasPainter extends CustomPainter {
     return path;
   }
 
-  static TextPainter _text(String string, Color color, double fontSize, {bool halo = false}) {
+  /// Line spacing for annotation text. The inline text field uses the same style (see textStyle), so typed
+  /// text lines up exactly with what is drawn.
+  static const lineHeight = 1.2;
+
+  /// The text style of a Text or Callout annotation, from its TextFormat.
+  static TextStyle textStyle(Annotation a, Color color, {bool halo = false}) {
+    final f = a.textFormat;
     final light = HSVColor.fromColor(color).value > 0.6;
-    return TextPainter(
-      text: TextSpan(text: string, style: TextStyle(color: color, fontSize: fontSize, fontWeight: FontWeight.w700,
-          shadows: halo ? [Shadow(color: light ? Colors.black.withValues(alpha: 0.7) : Colors.white.withValues(alpha: 0.9), blurRadius: 3)] : null)),
-      textDirection: TextDirection.ltr,
-    )..layout();
+    return TextStyle(
+      fontFamily: f.family.isEmpty ? null : f.family,
+      fontSize: a.fontSize,
+      height: lineHeight,
+      fontWeight: f.bold ? FontWeight.w700 : FontWeight.w400,
+      fontStyle: f.italic ? FontStyle.italic : FontStyle.normal,
+      decoration: f.underline ? TextDecoration.underline : TextDecoration.none,
+      decorationColor: color,
+      color: color,
+      shadows: halo && f.shadow
+          ? [Shadow(color: light ? Colors.black.withValues(alpha: 0.7) : Colors.white.withValues(alpha: 0.9), blurRadius: 3)]
+          : null,
+    );
   }
 
+  static List<TextRun> runsOf(Annotation a) => switch (a.shape) {
+        TextShape(:final runs) || CalloutShape(:final runs) => runs,
+        _ => const <TextRun>[],
+      };
+
+  /// The text as spans: the base style, with each run's colour / bold / italic / underline on top.
+  /// Also used by the inline text field, so typed text shows its formatting live.
+  static TextSpan richSpan(String text, List<TextRun> runs, TextStyle base) {
+    if (runs.isEmpty || text.isEmpty) return TextSpan(text: text, style: base);
+    final chars = TextRuns.expand(text.length, runs);
+    final children = <TextSpan>[];
+    var i = 0;
+    while (i < text.length) {
+      var j = i + 1;
+      while (j < text.length && chars[j] == chars[i]) {
+        j++;
+      }
+      final c = chars[i];
+      children.add(TextSpan(
+        text: text.substring(i, j),
+        style: c == plainChar
+            ? null
+            : TextStyle(
+                color: c.color,
+                fontWeight: c.bold == null ? null : (c.bold! ? FontWeight.w700 : FontWeight.w400),
+                fontStyle: c.italic == null ? null : (c.italic! ? FontStyle.italic : FontStyle.normal),
+                decoration: c.underline == null ? null : (c.underline! ? TextDecoration.underline : TextDecoration.none),
+                decorationColor: c.color,
+              ),
+      ));
+      i = j;
+    }
+    return TextSpan(style: base, children: children);
+  }
+
+  /// Laid-out text; centred or right-aligned lines line up within the widest line.
+  static TextPainter textLayout(String string, Annotation a, Color color, {bool halo = false}) {
+    final tp = TextPainter(
+      text: richSpan(string, runsOf(a), textStyle(a, color, halo: halo)),
+      textAlign: a.textFormat.align,
+      textDirection: TextDirection.ltr,
+    )..layout();
+    if (a.textFormat.align != TextAlign.left) tp.layout(minWidth: tp.maxIntrinsicWidth, maxWidth: tp.maxIntrinsicWidth);
+    return tp;
+  }
+
+  /// A callout's text colour: the chosen one, or black/white for contrast with the bubble.
+  static Color calloutTextColor(Annotation a) => a.textFormat.textColor ?? contrast(a.color);
+
   /// `at` is the text's top-left corner; the box adds padding around it.
-  static Rect calloutRect(String string, Offset at, double fontSize) {
-    final tp = _text(string, Colors.black, fontSize);
+  static Rect calloutRect(String string, Offset at, Annotation a) {
+    final tp = textLayout(string, a, Colors.black);
+    final fontSize = a.fontSize;
     final padX = fontSize * 0.5, padY = fontSize * 0.3;
     return Rect.fromLTWH(at.dx - padX, at.dy - padY, tp.width + padX * 2, tp.height + padY * 2);
   }
 
-  static void _callout(Canvas canvas, String string, Offset at, Offset? tail, Annotation a) {
-    final bubble = calloutPath(calloutRect(string, at, a.fontSize), tail, a.fontSize);
+  /// While typing (`hideText`) an empty bubble is sized for the "Type here" hint.
+  static void _callout(Canvas canvas, String string, Offset at, Offset? tail, Annotation a, {bool hideText = false}) {
+    final shown = string.isEmpty && hideText ? typeHint : string;
+    final bubble = calloutPath(calloutRect(shown, at, a), tail, a.fontSize);
     canvas.drawPath(bubble.shift(const Offset(0, 1)), Paint()
       ..color = Colors.black.withValues(alpha: 0.3)
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2));
     canvas.drawPath(bubble, Paint()..color = a.color);
-    _text(string, contrast(a.color), a.fontSize).paint(canvas, at);
+    if (!hideText) textLayout(string, a, calloutTextColor(a)).paint(canvas, at);
   }
+
+  static const typeHint = 'Type here';
 
   /// The bubble outline: a rounded box plus a pointer from the box edge facing `tail` to the tail tip.
   static Path calloutPath(Rect box, Offset? tail, double fontSize) {
@@ -359,13 +599,17 @@ class CanvasPainter extends CustomPainter {
     tp.paint(canvas, Offset(center.dx - tp.width / 2, center.dy - tp.height / 2));
   }
 
-  void _drawSpotlight(Canvas canvas, List<Rect> rects, Rect bounds) {
+  /// Each spotlight with how far it has appeared: the dimming fades in with the first one, and later
+  /// ones open up from their centres.
+  void _drawSpotlight(Canvas canvas, List<(Rect, double)> spots, Rect bounds) {
     final path = Path()..addRect(bounds); // dim the image only, not the canvas area around it
-    for (final r in rects) {
-      path.addRRect(RRect.fromRectXY(r, 8, 8));
+    final dim = spots.map((s) => s.$2).reduce(math.max);
+    for (final (r, t) in spots) {
+      final open = dim < 1 ? 1.0 : Curves.easeOut.transform(t);
+      path.addRRect(RRect.fromRectXY(Rect.fromCenter(center: r.center, width: r.width * open, height: r.height * open), 8, 8));
     }
     path.fillType = PathFillType.evenOdd;
-    canvas.drawPath(path, Paint()..color = Colors.black.withValues(alpha: 0.55));
+    canvas.drawPath(path, Paint()..color = Colors.black.withValues(alpha: 0.55 * dim));
   }
 
   // ---- Selection chrome ----
@@ -383,21 +627,56 @@ class CanvasPainter extends CustomPainter {
           Paint()..color = accent..style = PaintingStyle.stroke..strokeWidth = line);
     }
     final rad = 5 / scale;
-    for (var i = 0; i < handles.length; i++) {
-      final h = handles[i];
-      // The middle handle of an arrow/line (bend) is drawn hollow, like the Swift app
-      final bendHandle = a.styleKind == StyleKind.arrow || a.styleKind == StyleKind.line ? i == 2 : false;
+    if (a.curve != null) {
+      _drawCurveGrips(canvas, a, rad, accent);
+      return;
+    }
+    for (final h in handles) {
       canvas.drawCircle(h, rad + 1 / scale, Paint()..color = Colors.black.withValues(alpha: 0.25));
-      canvas.drawCircle(h, rad, Paint()..color = bendHandle ? accent : Colors.white);
-      canvas.drawCircle(h, rad, Paint()..color = bendHandle ? Colors.white : accent..style = PaintingStyle.stroke..strokeWidth = 1.5 / scale);
+      canvas.drawCircle(h, rad, Paint()..color = Colors.white);
+      canvas.drawCircle(h, rad, Paint()..color = accent..style = PaintingStyle.stroke..strokeWidth = 1.5 / scale);
+    }
+  }
+
+  /// A selected arrow or line: a tangent line through every point (with a handle at each end), white end
+  /// handles, solid blue bend points and "+" handles for adding more.
+  void _drawCurveGrips(Canvas canvas, Annotation a, double rad, Color accent) {
+    final pts = a.curve!, tg = a.curveTangents, n = pts.length;
+    final line = Paint()..color = accent..strokeWidth = 1 / scale;
+    for (var i = 0; i < n; i++) {
+      final t = tangentAt(pts, tg, i) / 3;
+      canvas.drawLine(i > 0 ? pts[i] - t : pts[i], i < n - 1 ? pts[i] + t : pts[i], line);
+    }
+    for (final g in curveGrips(a)) {
+      final h = g.at;
+      switch (g.kind) {
+        case GripKind.tangent:
+          // small diamond at each end of a tangent line
+          final r = rad * 0.7;
+          final d = Path()..addPolygon([h + Offset(0, -r), h + Offset(r, 0), h + Offset(0, r), h + Offset(-r, 0)], true);
+          canvas.drawPath(d, Paint()..color = Colors.white);
+          canvas.drawPath(d, Paint()..color = accent..style = PaintingStyle.stroke..strokeWidth = 1.2 / scale);
+        case GripKind.add:
+          final r = rad * 0.75;
+          canvas.drawCircle(h, r, Paint()..color = Colors.white.withValues(alpha: 0.85));
+          canvas.drawCircle(h, r, Paint()..color = accent..style = PaintingStyle.stroke..strokeWidth = 1 / scale);
+          final plus = Paint()..color = accent..strokeWidth = 1.2 / scale;
+          canvas.drawLine(h - Offset(r * 0.55, 0), h + Offset(r * 0.55, 0), plus);
+          canvas.drawLine(h - Offset(0, r * 0.55), h + Offset(0, r * 0.55), plus);
+        case GripKind.bend || GripKind.end:
+          final bend = g.kind == GripKind.bend;
+          final r = bend ? rad * 0.85 : rad;
+          canvas.drawCircle(h, r + 1 / scale, Paint()..color = Colors.black.withValues(alpha: 0.25));
+          canvas.drawCircle(h, r, Paint()..color = bend ? accent : Colors.white);
+          canvas.drawCircle(h, r, Paint()..color = bend ? Colors.white : accent..style = PaintingStyle.stroke..strokeWidth = 1.5 / scale);
+      }
     }
   }
 
   static List<Offset> handlesOf(Annotation a) {
     switch (a.shape) {
-      case ArrowShape(:final from, :final to, :final bend) || LineShape(:final from, :final to, :final bend):
-        final mid = Offset((from.dx + to.dx) / 2 + bend.dx, (from.dy + to.dy) / 2 + bend.dy);
-        return [from, to, mid];
+      case ArrowShape() || LineShape():
+        return [for (final g in curveGrips(a)) g.at];
       case CalloutShape(:final tail?):
         return [tail]; // drag the pointer's tip to re-aim it
       default:
@@ -415,8 +694,15 @@ class CanvasPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CanvasPainter old) =>
-      old.state != state || old.selectionId != selectionId || old.scale != scale;
+      old.state != state || old.selectionId != selectionId || old.scale != scale || old.progress != progress;
 }
+
+/// The kinds of handle on a selected arrow or line.
+enum GripKind { end, bend, add, tangent }
+
+/// One handle: where it is, what it is, the curve point (or stretch, for "+") it belongs to, and which side
+/// of its tangent line (-1 / +1) a tangent handle is on.
+typedef CurveGrip = ({Offset at, GripKind kind, int index, int side});
 
 class _Head {
   final Path? path;
@@ -448,7 +734,7 @@ class _PreviewStyle extends CustomPainter {
     final plain = style.copyWith(shadow: false, outline: false);
     final y = size.height / 2;
     if (line) {
-      CanvasPainter.drawArrow(canvas, Offset(7, y), Offset(size.width / 2, y), Offset(size.width - 7, y), plain, color, 2);
+      CanvasPainter.drawArrow(canvas, [Offset(7, y), Offset(size.width - 7, y)], plain, color, 2);
     } else {
       CanvasPainter.strokeStyled(canvas, Path()..addRRect(RRect.fromRectXY(Rect.fromLTWH(4, 3, size.width - 8, size.height - 6), 2, 2)),
           plain, color, 1.5);

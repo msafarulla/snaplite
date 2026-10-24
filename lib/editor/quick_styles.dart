@@ -113,10 +113,35 @@ class QuickStyles {
         QuickKind.highlight => const [(StrokeSize.medium, ArrowStyle.arrow)],
       };
 
-  static List<QuickStyle> presets(QuickKind kind) {
-    if (currentSet == mine) return _saved[kind.name] ?? const [];
-    final colors = sets.firstWhere((s) => s.$1 == currentSet, orElse: () => sets.first).$2;
-    return [for (final (size, style) in _rows(kind)) for (final c in colors) QuickStyle(c, size, style)];
+  /// The theme set shown above My Styles ("My Styles" saved by older versions falls back to the first set).
+  static String get themeSet => sets.any((s) => s.$1 == currentSet) ? currentSet : sets.first.$1;
+
+  /// Your own saved styles for a kind (newest first).
+  static List<QuickStyle> saved(QuickKind kind) => _saved[kind.name] ?? const [];
+
+  /// The theme's styles, built around your own current look (`current` / `size`): the first row is exactly
+  /// your style in the theme's four colours, and the other rows keep their variation (dashes, outline,
+  /// double ends…) but use your arrowheads instead of the plain triangle. Text kinds are unchanged.
+  static List<QuickStyle> presets(QuickKind kind, {ArrowStyle? current, StrokeSize? size}) {
+    final colors = sets.firstWhere((s) => s.$1 == themeSet).$2;
+    var rows = _rows(kind);
+    final usesLines = kind == QuickKind.arrow || kind == QuickKind.line || kind == QuickKind.shape;
+    if (current != null && usesLines) {
+      ArrowStyle personal(ArrowStyle r) => switch (kind) {
+            QuickKind.arrow => r.copyWith(
+                end: r.end == ArrowHead.triangle ? current.end : r.end,
+                start: r.start == ArrowHead.triangle ? current.end : r.start, // double-ended: your head at both ends
+                headSize: current.headSize),
+            QuickKind.line => r.copyWith(headSize: current.headSize),
+            _ => r,
+          };
+      rows = [
+        (size ?? StrokeSize.medium, current),
+        for (final (s, r) in rows)
+          if (personal(r) != current) (s, personal(r)),
+      ];
+    }
+    return [for (final (size, style) in rows) for (final c in colors) QuickStyle(c, size, style)];
   }
 
   static Future<void> save(QuickStyle q, QuickKind kind) async {

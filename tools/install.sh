@@ -1,7 +1,7 @@
 #!/bin/zsh
 # Build SnapLite (macOS), sign it, install it to /Applications and launch it.
 #
-#   tools/install.sh [--no-build] [--local-only]
+#   tools/install.sh [--no-build] [--local-only | --push-only]
 #
 # Signing: macOS ties the Screen Recording permission to the app's signature. With a stable identity
 # (SNAPLITE_SIGN_IDENTITY, or a SHA-1 in ~/.config/snaplite/signing-identity, optionally kept in the
@@ -16,6 +16,37 @@ export PATH=/opt/homebrew/bin:$HOME/.gem/bin:$PATH
 [[ -d $HOME/.gem ]] && export GEM_HOME=$HOME/.gem   # CocoaPods installed as a user gem
 app=build/macos/Build/Products/Release/SnapLite.app
 config=~/.config/snaplite
+
+# Copies the installed app to `host` safely, even over a connection that keeps dropping: rsync resumes
+# where it stopped (each attempt adds to the copy), the copy's signature is checked, and only then is it
+# swapped in, keeping the old app until the new one is in place.
+push_to() {
+  local host=$1 ok=""
+  for attempt in $(seq 1 ${SNAPLITE_PUSH_TRIES:-40}); do
+    if rsync -a --delete --partial --timeout=20 -e "ssh -o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=5" \
+         /Applications/SnapLite.app/ "$host:/tmp/SnapLite-staged.app/" 2>/dev/null &&
+       ssh -o BatchMode=yes -o ConnectTimeout=15 "$host" 'codesign --verify --deep --strict /tmp/SnapLite-staged.app' 2>/dev/null; then
+      ok=1; break
+    fi
+    echo "copy to $host interrupted (attempt $attempt), resuming…" >&2; sleep 15
+  done
+  [[ -n $ok ]] || { echo "error: could not copy SnapLite to $host; its current app is untouched" >&2; return 1; }
+  ssh -o BatchMode=yes -o ConnectTimeout=15 "$host" 'set -e
+    pkill -x SnapLite || true; sleep 1
+    rm -rf /Applications/SnapLite.app.old
+    [ -d /Applications/SnapLite.app ] && mv /Applications/SnapLite.app /Applications/SnapLite.app.old
+    cp -R /tmp/SnapLite-staged.app /Applications/SnapLite.app
+    codesign --verify --deep --strict /Applications/SnapLite.app
+    rm -rf /Applications/SnapLite.app.old
+    open /Applications/SnapLite.app
+    echo "installed on '"$host"': $(defaults read /Applications/SnapLite.app/Contents/Info CFBundleShortVersionString)"'
+}
+
+if [[ " $* " == *" --push-only "* ]]; then # just copy the installed app to the second Mac
+  host=${SNAPLITE_PUSH_HOST:-$(cat $config/push-host 2>/dev/null || true)}
+  [[ -n $host ]] || { echo "error: no push host" >&2; exit 1; }
+  push_to "$host"; exit $?
+fi
 
 [[ " $* " == *" --no-build "* ]] || flutter build macos --release
 
@@ -46,7 +77,4 @@ echo "installed: $(defaults read /Applications/SnapLite.app/Contents/Info CFBund
 
 host=${SNAPLITE_PUSH_HOST:-$(cat $config/push-host 2>/dev/null || true)}
 [[ " $* " == *" --local-only "* || -z $host ]] && exit 0
-cd /Applications && tar -cf - SnapLite.app | ssh -o BatchMode=yes -o ConnectTimeout=15 "$host" \
-  'pkill -x SnapLite; sleep 1; rm -rf /Applications/SnapLite.app && cd /Applications && tar -xf - &&
-   codesign --verify --deep --strict SnapLite.app && open SnapLite.app &&
-   echo "installed on '"$host"': $(defaults read /Applications/SnapLite.app/Contents/Info CFBundleShortVersionString)"'
+push_to "$host"

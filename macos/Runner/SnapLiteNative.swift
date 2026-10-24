@@ -1,6 +1,7 @@
 import AppKit
 import FlutterMacOS
 import QuickLookThumbnailing
+import UniformTypeIdentifiers
 import Vision
 
 /// macOS platform layer for the Flutter UI, on the channel "snaplite/native". Ported from the Swift
@@ -17,6 +18,10 @@ final class SnapLiteNative {
     channel.setMethodCallHandler { [weak self] call, result in self?.handle(call, result) }
     TextGrabber.warmUp()
     SnapLiteNative.shared = self
+    // Settings › Appearance: tell the Flutter windows (Library, editor) to follow the chosen theme
+    NotificationCenter.default.addObserver(forName: Theme.changed, object: nil, queue: .main) { [weak self] _ in
+      self?.invoke("appearanceChanged", Theme.choice.rawValue)
+    }
   }
 
   /// Native → Dart: "openEditor" (path), "showLibrary", "capturesChanged", "recordingFinished".
@@ -169,6 +174,10 @@ final class SnapLiteNative {
             let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
             let dpi = props[kCGImagePropertyDPIWidth] as? Double, dpi > 0 else { result(nil); return }
       result(max(1, (dpi / 72).rounded()))
+    case "saveAs":
+      guard let png = (args["png"] as? FlutterStandardTypedData)?.data else { result(nil); return }
+      SaveAs.run(png: png, name: args["name"] as? String ?? "SnapLite",
+                 density: args["density"] as? Double ?? 1, result: result)
     case "reveal":
       if let path = args["path"] as? String { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) }
       result(nil)
@@ -196,6 +205,128 @@ extension SnapLiteNative {
     guard let c = sender.color.usingColorSpace(.sRGB) else { return }
     func byte(_ v: CGFloat) -> Int { Int(max(0, min(255, (v * 255).rounded()))) }
     invoke("colorPicked", byte(c.redComponent) << 16 | byte(c.greenComponent) << 8 | byte(c.blueComponent))
+  }
+}
+
+// MARK: - Save As (format menu)
+
+/// Save panel with a Format menu: re-encodes the flattened PNG as PNG, JPEG, HEIC, TIFF, PDF, GIF or BMP.
+/// Result: the saved path, nil when cancelled, or a FlutterError when writing fails.
+enum SaveAs {
+  struct Format { let name: String; let type: UTType; let opaque: Bool }
+
+  private static let all = [
+    Format(name: "PNG", type: .png, opaque: false),
+    Format(name: "JPEG", type: .jpeg, opaque: true),
+    Format(name: "HEIC", type: .heic, opaque: false),
+    Format(name: "TIFF", type: .tiff, opaque: false),
+    Format(name: "PDF", type: .pdf, opaque: false),
+    Format(name: "GIF", type: .gif, opaque: false),
+    Format(name: "BMP", type: .bmp, opaque: true),
+  ]
+  private static let lastKey = "saveAs.format"
+
+  /// ImageIO encoders vary by macOS version, so only offer what this Mac can write; PDF is drawn directly.
+  static var available: [Format] {
+    let writable = Set(CGImageDestinationCopyTypeIdentifiers() as? [String] ?? [])
+    return all.filter { $0.type == .pdf || writable.contains($0.type.identifier) }
+  }
+
+  static func run(png: Data, name: String, density: Double, result: @escaping FlutterResult) {
+    guard let src = CGImageSourceCreateWithData(png as CFData, nil),
+          let image = CGImageSourceCreateImageAtIndex(src, 0, nil) else {
+      result(FlutterError(code: "decode", message: "Couldn't read the image", details: nil)); return
+    }
+    let formats = available
+    let panel = NSSavePanel()
+    panel.title = "Save As"
+    panel.canCreateDirectories = true
+    panel.isExtensionHidden = false
+    panel.nameFieldStringValue = name
+    let picker = FormatPicker(panel: panel, formats: formats,
+                              selected: UserDefaults.standard.string(forKey: lastKey))
+    let done: (NSApplication.ModalResponse) -> Void = { response in
+      guard response == .OK, let url = panel.url else { result(nil); return }
+      let format = picker.format
+      do {
+        try write(image, as: format, to: url, density: density)
+        UserDefaults.standard.set(format.name, forKey: lastKey)
+        result(url.path)
+      } catch {
+        result(FlutterError(code: "write", message: "Couldn't save as \(format.name)", details: "\(error)"))
+      }
+    }
+    if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+      panel.beginSheetModal(for: window, completionHandler: done)
+    } else {
+      panel.begin(completionHandler: done)
+    }
+  }
+
+  struct WriteError: Error { let reason: String }
+
+  static func write(_ image: CGImage, as format: Format, to url: URL, density: Double) throws {
+    let scale = max(1, density)
+    if format.type == .pdf {
+      // one page at the capture's point size, so a Retina capture prints at its on-screen size
+      var box = CGRect(x: 0, y: 0, width: Double(image.width) / scale, height: Double(image.height) / scale)
+      guard let pdf = CGContext(url as CFURL, mediaBox: &box, nil) else { throw WriteError(reason: "pdf context") }
+      pdf.beginPDFPage(nil)
+      pdf.interpolationQuality = .high
+      pdf.draw(image, in: box)
+      pdf.endPDFPage()
+      pdf.closePDF()
+      return
+    }
+    let pixels = format.opaque ? (onWhite(image) ?? image) : image
+    guard let dest = CGImageDestinationCreateWithURL(url as CFURL, format.type.identifier as CFString, 1, nil) else {
+      throw WriteError(reason: "no encoder for \(format.type.identifier)")
+    }
+    var props: [CFString: Any] = [kCGImagePropertyDPIWidth: 72 * scale, kCGImagePropertyDPIHeight: 72 * scale]
+    if format.type == .jpeg || format.type == .heic { props[kCGImageDestinationLossyCompressionQuality] = 0.9 }
+    CGImageDestinationAddImage(dest, pixels, props as CFDictionary)
+    guard CGImageDestinationFinalize(dest) else { throw WriteError(reason: "finalize failed") }
+  }
+
+  /// JPEG and BMP have no alpha: transparent canvas space becomes white instead of black.
+  private static func onWhite(_ image: CGImage) -> CGImage? {
+    guard let ctx = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8,
+                              bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                              bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
+    let rect = CGRect(x: 0, y: 0, width: image.width, height: image.height)
+    ctx.setFillColor(.white)
+    ctx.fill(rect)
+    ctx.draw(image, in: rect)
+    return ctx.makeImage()
+  }
+}
+
+/// The panel's "Format:" accessory; switching formats swaps the file name's extension.
+private final class FormatPicker: NSObject {
+  private let panel: NSSavePanel
+  private let formats: [SaveAs.Format]
+  private let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+
+  init(panel: NSSavePanel, formats: [SaveAs.Format], selected: String?) {
+    self.panel = panel
+    self.formats = formats
+    super.init()
+    popup.addItems(withTitles: formats.map(\.name))
+    popup.selectItem(at: formats.firstIndex { $0.name == selected } ?? 0)
+    popup.target = self
+    popup.action = #selector(changed)
+    let row = NSStackView(views: [NSTextField(labelWithString: "Format:"), popup])
+    row.edgeInsets = NSEdgeInsets(top: 10, left: 16, bottom: 10, right: 16)
+    panel.accessoryView = row
+    changed()
+  }
+
+  var format: SaveAs.Format { formats[max(0, popup.indexOfSelectedItem)] }
+
+  @objc private func changed() {
+    panel.allowedContentTypes = [format.type]
+    let base = (panel.nameFieldStringValue as NSString).deletingPathExtension
+    panel.nameFieldStringValue = "\(base).\(format.type.preferredFilenameExtension ?? format.name.lowercased())"
   }
 }
 

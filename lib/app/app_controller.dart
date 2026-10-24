@@ -19,6 +19,9 @@ class AppController with TrayListener, WindowListener {
   final libraryKey = GlobalKey<LibraryPageState>();
   /// Bumped whenever the captures folder changes (new capture, recording, GIF, trash).
   final capturesVersion = ValueNotifier<int>(0);
+
+  /// Settings › Appearance (the Swift app's key "appearance"): glass, system, light, dark or tokyoNight.
+  final appearance = ValueNotifier<String>('glass');
   Map<ShortcutAction, Shortcut?> shortcuts = {};
   bool _sized = false;
 
@@ -57,6 +60,8 @@ class AppController with TrayListener, WindowListener {
     Native.onOpenEditor = openEditor;
     Native.onShowLibrary = showLibrary;
     Native.onCapturesChanged = () => capturesVersion.value++;
+    Native.onAppearanceChanged = (choice) => appearance.value = choice;
+    appearance.value = await Native.getString('appearance') ?? 'glass';
     await windowManager.ensureInitialized();
     await windowManager.setPreventClose(true);
     windowManager.addListener(this);

@@ -73,6 +73,7 @@ class ArrowStyle {
   final bool tapered;
   final bool outline;
   final bool shadow;
+  final double? width; // exact line thickness in points (the thickness slider); null = from S / M / L
   const ArrowStyle({
     this.start = ArrowHead.none,
     this.end = ArrowHead.triangle,
@@ -81,9 +82,10 @@ class ArrowStyle {
     this.tapered = false,
     this.outline = false,
     this.shadow = true,
+    this.width,
   });
 
-  static const arrow = ArrowStyle();
+  static const arrow = ArrowStyle(end: ArrowHead.swept); // the Arrow tool's built-in look
   static const line = ArrowStyle(end: ArrowHead.none);
   static const shape = ArrowStyle(end: ArrowHead.none, shadow: false);
 
@@ -97,11 +99,16 @@ class ArrowStyle {
         tapered: tapered ?? this.tapered,
         outline: outline ?? this.outline,
         shadow: shadow ?? this.shadow,
+        width: width,
       );
+
+  ArrowStyle withWidth(double? value) => ArrowStyle(start: start, end: end, headSize: headSize, pattern: pattern,
+      tapered: tapered, outline: outline, shadow: shadow, width: value);
 
   Map<String, Object> toJson() => {
         'start': start.index, 'end': end.index, 'headSize': headSize.index, 'pattern': pattern.index,
         'tapered': tapered, 'outline': outline, 'shadow': shadow,
+        if (width != null) 'width': width!,
       };
 
   static ArrowStyle? fromJson(Object? json) {
@@ -115,16 +122,139 @@ class ArrowStyle {
       tapered: json['tapered'] == true,
       outline: json['outline'] == true,
       shadow: json['shadow'] != false,
+      width: (json['width'] as num?)?.toDouble(),
     );
   }
 
   @override
   bool operator ==(Object other) =>
       other is ArrowStyle && other.start == start && other.end == end && other.headSize == headSize &&
-      other.pattern == pattern && other.tapered == tapered && other.outline == outline && other.shadow == shadow;
+      other.pattern == pattern && other.tapered == tapered && other.outline == outline && other.shadow == shadow &&
+      other.width == width;
 
   @override
-  int get hashCode => Object.hash(start, end, headSize, pattern, tapered, outline, shadow);
+  int get hashCode => Object.hash(start, end, headSize, pattern, tapered, outline, shadow, width);
+}
+
+/// How Text and Callout annotations set their words: font, exact size, bold/italic/underline, alignment,
+/// the callout's text colour and the text's shadow. Remembered per tool (UserDefaults "style.textFormat.<kind>").
+class TextFormat {
+  final String family; // '' = the system font
+  final double? points; // exact size; null = from S / M / L
+  final bool bold, italic, underline;
+  final bool shadow; // Text only: a soft halo so it reads on any background
+  final TextAlign align;
+  final Color? textColor; // Callout only: null = black or white, whichever contrasts with the bubble
+
+  const TextFormat({this.family = '', this.points, this.bold = true, this.italic = false, this.underline = false,
+      this.shadow = true, this.align = TextAlign.left, this.textColor});
+
+  TextFormat copyWith({String? family, bool? bold, bool? italic, bool? underline, bool? shadow, TextAlign? align}) =>
+      TextFormat(family: family ?? this.family, points: points, bold: bold ?? this.bold, italic: italic ?? this.italic,
+          underline: underline ?? this.underline, shadow: shadow ?? this.shadow, align: align ?? this.align, textColor: textColor);
+
+  TextFormat withPoints(double? value) => TextFormat(family: family, points: value, bold: bold, italic: italic,
+      underline: underline, shadow: shadow, align: align, textColor: textColor);
+
+  TextFormat withTextColor(Color? value) => TextFormat(family: family, points: points, bold: bold, italic: italic,
+      underline: underline, shadow: shadow, align: align, textColor: value);
+
+  Map<String, Object?> toJson() => {
+        'family': family, 'points': points, 'bold': bold, 'italic': italic, 'underline': underline, 'shadow': shadow,
+        'align': align.index, 'textColor': textColor?.toARGB32(),
+      };
+
+  static TextFormat? fromJson(Object? j) {
+    if (j is! Map) return null;
+    final a = j['align'];
+    return TextFormat(
+      family: j['family'] is String ? j['family'] as String : '',
+      points: (j['points'] as num?)?.toDouble(),
+      bold: j['bold'] != false,
+      italic: j['italic'] == true,
+      underline: j['underline'] == true,
+      shadow: j['shadow'] != false,
+      align: a is int && a >= 0 && a < TextAlign.values.length ? TextAlign.values[a] : TextAlign.left,
+      textColor: j['textColor'] is int ? Color(j['textColor'] as int) : null,
+    );
+  }
+
+  @override
+  bool operator ==(Object o) => o is TextFormat && o.family == family && o.points == points && o.bold == bold &&
+      o.italic == italic && o.underline == underline && o.shadow == shadow && o.align == align && o.textColor == textColor;
+  @override
+  int get hashCode => Object.hash(family, points, bold, italic, underline, shadow, align, textColor);
+}
+
+/// Per-character formatting on top of the TextFormat: only what was set on highlighted words.
+typedef CharStyle = ({Color? color, bool? bold, bool? italic, bool? underline});
+const CharStyle plainChar = (color: null, bold: null, italic: null, underline: null);
+
+/// A run of characters [start, end) with the same overrides.
+class TextRun {
+  final int start, end;
+  final CharStyle style;
+  const TextRun(this.start, this.end, this.style);
+
+  @override
+  bool operator ==(Object o) => o is TextRun && o.start == start && o.end == end && o.style == style;
+  @override
+  int get hashCode => Object.hash(start, end, style);
+}
+
+/// Helpers that keep runs right as text is edited or restyled.
+class TextRuns {
+  static List<CharStyle> expand(int length, List<TextRun> runs) {
+    final out = List<CharStyle>.filled(length, plainChar);
+    for (final r in runs) {
+      for (var i = r.start.clamp(0, length); i < r.end.clamp(0, length); i++) {
+        out[i] = r.style;
+      }
+    }
+    return out;
+  }
+
+  static List<TextRun> compress(List<CharStyle> chars) {
+    final out = <TextRun>[];
+    var i = 0;
+    while (i < chars.length) {
+      var j = i + 1;
+      while (j < chars.length && chars[j] == chars[i]) {
+        j++;
+      }
+      if (chars[i] != plainChar) out.add(TextRun(i, j, chars[i]));
+      i = j;
+    }
+    return out;
+  }
+
+  /// Restyles [start, end) with `change`.
+  static List<TextRun> apply(int length, List<TextRun> runs, int start, int end, CharStyle Function(CharStyle) change) {
+    final chars = expand(length, runs);
+    for (var i = start.clamp(0, length); i < end.clamp(0, length); i++) {
+      chars[i] = change(chars[i]);
+    }
+    return compress(chars);
+  }
+
+  /// Moves runs to follow an edit from `oldText` to `newText`: typed characters take the style of the
+  /// character before them (or after, at the very start).
+  static List<TextRun> adjust(String oldText, String newText, List<TextRun> runs) {
+    if (runs.isEmpty || oldText == newText) return runs;
+    final old = expand(oldText.length, runs);
+    var p = 0;
+    while (p < oldText.length && p < newText.length && oldText.codeUnitAt(p) == newText.codeUnitAt(p)) {
+      p++;
+    }
+    var q = 0;
+    while (q < oldText.length - p && q < newText.length - p &&
+        oldText.codeUnitAt(oldText.length - 1 - q) == newText.codeUnitAt(newText.length - 1 - q)) {
+      q++;
+    }
+    final inserted = newText.length - p - q;
+    final carry = p > 0 ? old[p - 1] : (old.length > p ? old[p] : plainChar);
+    return compress([...old.sublist(0, p), for (var i = 0; i < inserted; i++) carry, ...old.sublist(oldText.length - q)]);
+  }
 }
 
 /// The geometry of an annotation, in the base image's coordinate space (origin top-left).
@@ -133,16 +263,22 @@ sealed class Shape {
   const Shape();
 }
 
+/// Arrows and lines run from `from` to `to` through any number of bend `points` on the curve itself; the
+/// curve flows smoothly through all of them. No points = a straight line. `tangents` holds a direction per
+/// curve point (start, bends…, end), set by dragging the handles of the tangent line through it; a missing
+/// or null entry = the automatic smooth tangent.
 class ArrowShape extends Shape {
   final Offset from, to;
-  final Offset bend; // how far the mid control point is pulled off the straight line
-  const ArrowShape(this.from, this.to, {this.bend = Offset.zero});
+  final List<Offset> points;
+  final List<Offset?> tangents;
+  const ArrowShape(this.from, this.to, {this.points = const [], this.tangents = const []});
 }
 
 class LineShape extends Shape {
   final Offset from, to;
-  final Offset bend;
-  const LineShape(this.from, this.to, {this.bend = Offset.zero});
+  final List<Offset> points;
+  final List<Offset?> tangents;
+  const LineShape(this.from, this.to, {this.points = const [], this.tangents = const []});
 }
 
 class RectShape extends Shape {
@@ -173,7 +309,8 @@ class PenShape extends Shape {
 class TextShape extends Shape {
   final String string;
   final Offset at;
-  const TextShape(this.string, this.at);
+  final List<TextRun> runs; // formatting on highlighted words
+  const TextShape(this.string, this.at, {this.runs = const []});
 }
 
 /// A speech bubble: text at `at` (top-left of the text) and a pointer whose tip is at `tail`
@@ -182,7 +319,8 @@ class CalloutShape extends Shape {
   final String string;
   final Offset at;
   final Offset? tail;
-  const CalloutShape(this.string, this.at, {this.tail});
+  final List<TextRun> runs; // formatting on highlighted words
+  const CalloutShape(this.string, this.at, {this.tail, this.runs = const []});
 }
 
 class StepShape extends Shape {
@@ -214,6 +352,7 @@ class Annotation {
   /// Pixels per point of the image it was drawn on (2 on Retina captures), so S/M/L look the same
   /// on any capture, as they did in the Swift app (which worked in points).
   final double scale;
+  final TextFormat textFormat; // Text and Callout only
 
   const Annotation({
     required this.id,
@@ -222,20 +361,60 @@ class Annotation {
     this.size = StrokeSize.medium,
     this.arrowStyle = const ArrowStyle(),
     this.scale = 1,
+    this.textFormat = const TextFormat(),
   });
 
-  double get lineWidth => size.line * scale;
-  double get fontSize => size.fontSize * scale;
+  double get lineWidth => (styleKind != null ? arrowStyle.width ?? size.line : size.line) * scale;
+  double get fontSize => (textFormat.points ?? size.fontSize) * scale;
   double get stepDiameter => size.stepDiameter * scale;
 
-  Annotation copyWith({Shape? shape, Color? color, StrokeSize? size, ArrowStyle? arrowStyle}) => Annotation(
+  Annotation copyWith({Shape? shape, Color? color, StrokeSize? size, ArrowStyle? arrowStyle, TextFormat? textFormat}) =>
+      Annotation(
         id: id,
         shape: shape ?? this.shape,
         color: color ?? this.color,
         size: size ?? this.size,
         arrowStyle: arrowStyle ?? this.arrowStyle,
         scale: scale,
+        textFormat: textFormat ?? this.textFormat,
       );
+
+  bool get isTextual => shape is TextShape || shape is CalloutShape;
+
+  /// An arrow's or line's whole path: start, bend points, end (null for other shapes).
+  List<Offset>? get curve => switch (shape) {
+        ArrowShape(:final from, :final to, :final points) || LineShape(:final from, :final to, :final points) =>
+          [from, ...points, to],
+        _ => null,
+      };
+
+  /// Tangents lined up with `curve` (null = automatic).
+  List<Offset?> get curveTangents {
+    final pts = curve;
+    if (pts == null) return const [];
+    final t = switch (shape) { ArrowShape(:final tangents) || LineShape(:final tangents) => tangents, _ => const <Offset?>[] };
+    return [for (var i = 0; i < pts.length; i++) i < t.length ? t[i] : null];
+  }
+
+  /// The same arrow or line through a new path (start, bend points, end) with matching tangents.
+  Annotation withCurve(List<Offset> pts, {List<Offset?>? tangents}) {
+    final t = tangents ?? curveTangents;
+    final inner = pts.sublist(1, pts.length - 1);
+    final keep = t.any((x) => x != null) ? t : const <Offset?>[];
+    return copyWith(
+        shape: shape is LineShape
+            ? LineShape(pts.first, pts.last, points: inner, tangents: keep)
+            : ArrowShape(pts.first, pts.last, points: inner, tangents: keep));
+  }
+
+  /// A bend point inserted at curve index `i` (1 … length-1), with an automatic tangent.
+  Annotation insertBend(int i, Offset p) =>
+      withCurve([...curve!]..insert(i, p), tangents: [...curveTangents]..insert(i, null));
+
+  Annotation removeBend(int i) => withCurve([...curve!]..removeAt(i), tangents: [...curveTangents]..removeAt(i));
+
+  /// Sets (or with null, resets to automatic) the tangent at curve index `i`.
+  Annotation withTangent(int i, Offset? t) => withCurve(curve!, tangents: [...curveTangents]..[i] = t);
 
   /// Arrows, lines and shapes have a line style; text, steps, blur etc. don't.
   StyleKind? get styleKind => switch (shape) {
@@ -271,11 +450,14 @@ class Annotation {
 
   Annotation movedBy(Offset d) {
     final s = switch (shape) {
-      ArrowShape(:final from, :final to, :final bend) => ArrowShape(from + d, to + d, bend: bend),
-      LineShape(:final from, :final to, :final bend) => LineShape(from + d, to + d, bend: bend),
+      ArrowShape(:final from, :final to, :final points, :final tangents) =>
+        ArrowShape(from + d, to + d, points: [for (final p in points) p + d], tangents: tangents),
+      LineShape(:final from, :final to, :final points, :final tangents) =>
+        LineShape(from + d, to + d, points: [for (final p in points) p + d], tangents: tangents),
       PenShape(:final points) => PenShape([for (final p in points) p + d]),
-      TextShape(:final string, :final at) => TextShape(string, at + d),
-      CalloutShape(:final string, :final at, :final tail) => CalloutShape(string, at + d, tail: tail == null ? null : tail + d),
+      TextShape(:final string, :final at, :final runs) => TextShape(string, at + d, runs: runs),
+      CalloutShape(:final string, :final at, :final tail, :final runs) =>
+        CalloutShape(string, at + d, tail: tail == null ? null : tail + d, runs: runs),
       StepShape(:final center) => StepShape(center + d),
       _ => (rect != null) ? null : shape,
     };

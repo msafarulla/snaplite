@@ -9,6 +9,7 @@ class Native {
   static void Function(String path)? onOpenEditor;
   static void Function()? onShowLibrary;
   static void Function()? onCapturesChanged;
+  static void Function(String choice)? onAppearanceChanged;
 
   static void init() {
     _ch.setMethodCallHandler((call) async {
@@ -18,6 +19,7 @@ class Native {
         case 'showLibrary': onShowLibrary?.call();
         case 'capturesChanged': onCapturesChanged?.call();
         case 'colorPicked': onColorPicked?.call(call.arguments as int);
+        case 'appearanceChanged': onAppearanceChanged?.call(call.arguments as String);
       }
     });
   }
@@ -36,6 +38,10 @@ class Native {
   static Future<void> copyFiles(List<String> paths) => _call('copyFiles', {'paths': paths});
   static Future<void> copyTextOfFile(String path) => _call('copyTextOfFile', {'path': path});
   static Future<String?> exportGif(String path) => _call<String>('exportGIF', {'path': path});
+  /// Save panel with a Format menu (PNG, JPEG, HEIC, TIFF, PDF, GIF, BMP); returns the saved path,
+  /// null when cancelled, and throws a PlatformException when writing fails.
+  static Future<String?> saveAs(Uint8List png, {required String name, double density = 1}) =>
+      _call<String>('saveAs', {'png': png, 'name': name, 'density': density});
 
   static Future<T?> _call<T>(String method, [Map<String, Object?>? args]) async {
     if (!Platform.isMacOS) return null;
