@@ -50,7 +50,7 @@ jobs:
           path: SnapLite-macOS.zip
 
   windows:
-    runs-on: windows-latest
+    runs-on: windows-2022 # Visual Studio 2022; Flutter 3.32 doesn't recognise the newer image's Visual Studio
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0

@@ -249,7 +249,6 @@ class PropertiesPanel extends StatelessWidget {
   List<Widget> _textSection(BuildContext context) {
     final f = host.textFormat;
     final sizePt = f.points ?? host.size.fontSize;
-    final scheme = Theme.of(context).colorScheme;
     return [
       _separator(context),
       _heading(context, 'Text', small: true),
