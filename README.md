@@ -95,7 +95,64 @@ all your captures below.
 
 ## Install
 
-SnapLite is built from source for now; signed releases are planned.
+Download the latest build for your system from **[Releases](https://github.com/msafarulla/snaplite/releases/latest)**.
+Every build is made and tested by [GitHub Actions](https://github.com/msafarulla/snaplite/actions) from this
+repository's source.
+
+| | File | Status |
+|---|---|---|
+| macOS 14 or later (Apple silicon) | `SnapLite-macOS.zip` | Full app |
+| Windows 10 / 11 (x64) | `SnapLite-Windows.zip` | Early preview: the editor |
+| Linux x64 | `SnapLite-Linux-x64.tar.gz` | Early preview: the editor |
+
+### macOS
+
+1. Unzip `SnapLite-macOS.zip` and drag **SnapLite.app** into **Applications**.
+2. Open it. SnapLite isn't notarized by Apple yet (that needs a paid Apple Developer ID), so the first time
+   macOS says it can't check the app. Click **Done**, then go to **System Settings › Privacy & Security**,
+   scroll down to *"SnapLite" was blocked* and click **Open Anyway**. You only do this once per version.
+3. On your first capture macOS asks for **Screen Recording** permission (System Settings › Privacy & Security ›
+   Screen & System Audio Recording). Downloaded builds are signed ad hoc, so macOS may ask again after an update.
+
+<details>
+<summary>Advanced: skip the Gatekeeper prompt from Terminal</summary>
+
+`xattr -dr com.apple.quarantine /Applications/SnapLite.app` removes the "downloaded from the internet" flag,
+so macOS doesn't check the app at all. Only do this for a build you downloaded from this repository's Releases.
+</details>
+
+### Windows (preview)
+
+1. Unzip `SnapLite-Windows.zip` into a folder of your choice, for example `C:\Program Files\SnapLite`, keeping
+   all the files together.
+2. Run **snaplite_flutter.exe**. The build isn't code-signed yet, so Windows SmartScreen may say
+   *"Windows protected your PC"*: click **More info**, then **Run anyway**.
+3. SnapLite starts in the system tray (the ^ area next to the clock): use it to open the Library or an image.
+4. If Windows reports a missing `VCRUNTIME140.dll` or `MSVCP140.dll`, install Microsoft's
+   [Visual C++ Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe).
+
+### Linux (preview)
+
+Built on Ubuntu 24.04, so it needs a similarly recent distribution (glibc 2.39 or later: Ubuntu 24.04+,
+Debian 13, Fedora 40+).
+
+```sh
+# Ubuntu / Debian: the libraries SnapLite uses (tray icon, global shortcuts, file dialogs)
+sudo apt install libgtk-3-0 libayatana-appindicator3-1 libkeybinder-3.0-0 zenity
+
+tar -xzf SnapLite-Linux-x64.tar.gz
+./SnapLite/snaplite_flutter
+```
+
+On GNOME the tray icon needs the *AppIndicator and KStatusNotifierItem Support* extension (Ubuntu has it built
+in).
+
+**About the previews:** they build and start on every release (checked automatically), but haven't been tried
+by hand yet. The editor (open an image, mark it up, save) is the part meant to work. Screen capture, recording,
+Copy Text (OCR), notifications and Library thumbnails are macOS-only for now. Bug reports are welcome in
+[Issues](https://github.com/msafarulla/snaplite/issues).
+
+### Build from source (macOS)
 
 **Requirements:** macOS 14 or later, Xcode, [Flutter](https://docs.flutter.dev/get-started/install/macos) 3.32
 or later, CocoaPods.
@@ -106,9 +163,9 @@ cd snaplite
 tools/install.sh        # builds, signs, installs to /Applications and launches
 ```
 
-On the first capture macOS asks for **Screen Recording** permission (System Settings › Privacy & Security ›
-Screen & System Audio Recording). Without a stable signing identity the app is signed ad hoc, and macOS asks
-again after each rebuild; see the top of [`tools/install.sh`](tools/install.sh) for using your own identity.
+Without a stable signing identity the app is signed ad hoc, and macOS asks for Screen Recording again after each
+rebuild; see the top of [`tools/install.sh`](tools/install.sh) for using your own identity. On Windows or Linux,
+install Flutter and run `flutter build windows` or `flutter build linux`.
 
 ## How it's built
 
