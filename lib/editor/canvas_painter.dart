@@ -575,17 +575,20 @@ class CanvasPainter extends CustomPainter {
     if (d.dy.abs() * halfW >= d.dx.abs() * halfH) {
       // Leaves through the top or bottom edge
       final y = d.dy > 0 ? box.bottom - 1 : box.top + 1;
-      final x = (c.dx + d.dx * (halfH / d.dy.abs())).clamp(box.left + radius + base / 2, box.right - radius - base / 2);
+      final x = _within(c.dx + d.dx * (halfH / d.dy.abs()), box.left + radius + base / 2, box.right - radius - base / 2);
       foot = [Offset(x - base / 2, y), Offset(x + base / 2, y)];
     } else {
       // Leaves through the left or right edge
       final x = d.dx > 0 ? box.right - 1 : box.left + 1;
-      final y = (c.dy + d.dy * (halfW / d.dx.abs())).clamp(box.top + radius + base / 2, box.bottom - radius - base / 2);
+      final y = _within(c.dy + d.dy * (halfW / d.dx.abs()), box.top + radius + base / 2, box.bottom - radius - base / 2);
       foot = [Offset(x, y - base / 2), Offset(x, y + base / 2)];
     }
     final pointer = Path()..addPolygon([foot[0], tail, foot[1]], true);
     return Path.combine(PathOperation.union, body, pointer);
   }
+
+  /// Like clamp, but a box too small for the pointer's margins (lo > hi) gives the middle instead of throwing.
+  static double _within(double v, double lo, double hi) => lo <= hi ? v.clamp(lo, hi) : (lo + hi) / 2;
 
   static void _step(Canvas canvas, Offset center, int number, Annotation a) {
     final d = a.stepDiameter;
