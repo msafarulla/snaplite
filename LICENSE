@@ -1,6 +1,43 @@
+SnapLite licence: MIT with the Commons Clause, and patent rights reserved
+
+In short: you may use SnapLite for free, personally or at work, read and change its source, and share it
+for free. You may not sell it, or a product or service built substantially on it, without the author's
+written permission. Ask: https://github.com/msafarulla/snaplite/issues
+
+This licence applies to versions from the commit that added it onward. Earlier versions are covered at the
+end of this file.
+
+-------------------------------------------------------------------------------
+"Commons Clause" License Condition v1.0
+
+The Software is provided to you by the Licensor under the License, as defined below, subject to the
+following condition.
+
+Without limiting other conditions in the License, the grant of rights under the License will not include,
+and the License does not grant to you, the right to Sell the Software.
+
+For purposes of the foregoing, "Sell" means practicing any or all of the rights granted to you under the
+License to provide to third parties, for a fee or other consideration (including without limitation fees
+for hosting or consulting/support services related to the Software), a product or service whose value
+derives, entirely or substantially, from the functionality of the Software. Any license notice or
+attribution required by the License must also include this Commons Clause License Condition notice.
+
+Software: SnapLite
+License: MIT (the text below)
+Licensor: Mohamed Musthafa Safarulla
+
+-------------------------------------------------------------------------------
+Patents
+
+No patent licence is granted by this licence, by implication or otherwise, except what is needed to use,
+copy, modify and share this Software itself under the terms above. In particular, no right is granted to
+implement the methods it embodies (including generating an animation from annotations after they were made
+as a still image, and keeping editable annotations inside a saved image) in other software or services.
+
+-------------------------------------------------------------------------------
 MIT License
 
-Copyright (c) 2026 msafarulla
+Copyright (c) 2026 Mohamed Musthafa Safarulla (msafarulla)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,3 +56,9 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+-------------------------------------------------------------------------------
+Earlier versions
+
+Versions published before this licence (up to and including commit 488d7cc, 25 October 2026, and release
+v1.12.0) were released under the plain MIT License, which still applies to those copies.

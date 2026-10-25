@@ -1,6 +1,6 @@
 # SnapLite
 
-**A free, open-source screenshot, markup and screen-recording app for the Mac menu bar.**
+**A free, source-available screenshot, markup and screen-recording app for the Mac menu bar.**
 Capture an area, a window or the whole screen, mark it up with arrows, callouts and numbered steps,
 blur what's private, and copy or save it, without leaving your keyboard.
 
@@ -21,7 +21,7 @@ blur what's private, and copy or save it, without leaving your keyboard.
 - **Copy text from anything.** Select an area of the screen and its text is on your clipboard, with table
   columns as tabs, so it pastes into a spreadsheet as cells. Fully on-device (Apple Vision).
 - **Record the screen** into a `.mov`, then turn it into a GIF from the Library.
-- **Yours.** No account, no cloud, no telemetry, MIT licensed.
+- **Yours.** No account, no cloud, no telemetry. Free for personal and work use.
 
 ## Capture
 
@@ -212,4 +212,6 @@ The same workflow builds all three platforms and, only if every job passes, publ
 
 ## License
 
-[MIT](LICENSE)
+Free to use, personally or at work, and to read, change and share for free. Selling SnapLite, or a product
+or service built substantially on it, needs the author's written permission. Patent rights are reserved.
+See [LICENSE](LICENSE) (MIT with the Commons Clause). Versions up to v1.12.0 were plain MIT.
