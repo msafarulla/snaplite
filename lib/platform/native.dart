@@ -39,6 +39,9 @@ class Native {
   static Future<void> copyTextOfFile(String path) => _call('copyTextOfFile', {'path': path});
   /// Puts the GIF file on the clipboard as both GIF data and a file, so it pastes animated.
   static Future<void> copyGif(String path) => _call('copyGif', {'path': path});
+  /// The image as a WhatsApp sticker (512×512 WebP) on the clipboard; returns the sticker file's path.
+  static Future<String?> copySticker(Uint8List png, {required String name}) =>
+      _call<String>('copySticker', {'png': png, 'name': name});
   static Future<String?> exportGif(String path) => _call<String>('exportGIF', {'path': path});
   /// Save panel with a Format menu (PNG, JPEG, HEIC, TIFF, PDF, GIF, BMP); returns the saved path,
   /// null when cancelled, and throws a PlatformException when writing fails.

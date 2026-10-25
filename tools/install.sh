@@ -49,6 +49,7 @@ if [[ " $* " == *" --push-only "* ]]; then # just copy the installed app to the 
 fi
 
 [[ " $* " == *" --no-build "* ]] || flutter build macos --release
+cp LICENSE THIRD_PARTY_NOTICES "$app/Contents/Resources/" # libwebp's BSD notice travels with the app
 
 identity=${SNAPLITE_SIGN_IDENTITY:-$(cat $config/signing-identity 2>/dev/null || true)}
 keychain=~/Library/Keychains/snaplite-signing.keychain-db

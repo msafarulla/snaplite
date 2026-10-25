@@ -1,5 +1,6 @@
 #include "../../Flutter/Flutter-Release.xcconfig"
 #include "Warnings.xcconfig"
+#include "WebP.xcconfig"
 
 // Apple Silicon only — avoids the universal-arch unpack bug on Xcode 27
 ARCHS = arm64

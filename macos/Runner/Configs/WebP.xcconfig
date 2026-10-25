@@ -1,0 +1,6 @@
+// libwebp from Homebrew (`brew install webp`), linked statically so the app has no Homebrew dependency.
+// Used by Sticker in SnapLiteNative.swift.
+WEBP_PREFIX = /opt/homebrew/opt/webp
+HEADER_SEARCH_PATHS = $(inherited) $(WEBP_PREFIX)/include
+OTHER_LDFLAGS = $(inherited) $(WEBP_PREFIX)/lib/libwebp.a $(WEBP_PREFIX)/lib/libsharpyuv.a
+SWIFT_OBJC_BRIDGING_HEADER = Runner/Runner-Bridging-Header.h

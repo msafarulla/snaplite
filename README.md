@@ -78,7 +78,11 @@ everything into the image. Drag the image's square handles to add space around i
 **More › Save as Animated GIF…** turns your markup into a looping GIF: the original capture first, then
 each annotation appears in the order you added it (arrows grow, boxes draw on, steps pop in, highlights
 wipe), and the finished picture holds at the end. Good for showing a step-by-step in a chat or a ticket.
-**⇧⌘C** copies that animated GIF straight to the clipboard, ready to paste into Messages, Slack or Mail.
+**⇧⌘C** copies that animated GIF straight to the clipboard, ready to paste into Messages, Slack, Mail or WhatsApp.
+
+**⌃⌘C** copies the finished picture as a WhatsApp sticker (512×512 WebP with a transparent margin): paste it
+into a WhatsApp chat on the Mac and it goes as a sticker. WhatsApp only shows the first frame of a pasted
+animated sticker, so for movement use ⇧⌘C.
 
 **Changed your mind later?** ⌘S keeps your markup inside the saved PNG. Any app shows the finished picture, but
 when you reopen it in SnapLite the original capture and every annotation come back, still editable and in the
@@ -162,7 +166,7 @@ Windows and Linux machines to build and test them on. Bug reports are welcome in
 ### Build from source (macOS)
 
 **Requirements:** macOS 14 or later, Xcode, [Flutter](https://docs.flutter.dev/get-started/install/macos) 3.32
-or later, CocoaPods.
+or later, CocoaPods, and libwebp (`brew install webp`; linked into the app, so users don't need it).
 
 ```sh
 git clone https://github.com/msafarulla/snaplite.git
@@ -215,3 +219,4 @@ The same workflow builds all three platforms and, only if every job passes, publ
 Free to use, personally or at work, and to read, change and share for free. Selling SnapLite, or a product
 or service built substantially on it, needs the author's written permission. Patent rights are reserved.
 See [LICENSE](LICENSE) (MIT with the Commons Clause). Versions up to v1.12.0 were plain MIT.
+The macOS app includes Google's libwebp (BSD licence); see [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES).

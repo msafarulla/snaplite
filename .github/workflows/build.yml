@@ -36,11 +36,13 @@ jobs:
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
+      - run: brew install webp # linked statically for the WhatsApp sticker
       - run: flutter build macos --release
       # No Apple Developer ID yet: signed ad hoc, so macOS asks before the first launch (see README)
       - name: Sign and zip
         run: |
           app=build/macos/Build/Products/Release/SnapLite.app
+          cp LICENSE THIRD_PARTY_NOTICES "$app/Contents/Resources/"
           codesign --force --deep -s - "$app"
           codesign --verify --deep --strict "$app"
           ditto -c -k --keepParent "$app" SnapLite-macOS.zip

@@ -940,6 +940,21 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     }
   }
 
+  /// ⌃⌘C: the finished image as a WhatsApp sticker. Pasted into WhatsApp it arrives as a sticker
+  /// (animated stickers only paste as their first frame there, so animation is ⇧⌘C's GIF).
+  Future<void> copySticker() async {
+    _endTextEdit();
+    final png = await _flatPng();
+    if (png == null) return;
+    try {
+      await Native.copySticker(png, name: _gifName());
+      await Native.toast('Copied sticker');
+    } catch (e, st) {
+      debugPrint('Sticker: $e\n$st');
+      await Native.toast("Couldn't make the sticker", symbol: 'exclamationmark.triangle.fill');
+    }
+  }
+
   /// The canvas to animate, or null (with a toast) when there's no markup to build up.
   Future<CanvasState?> _gifState() async {
     _endTextEdit();
@@ -1337,6 +1352,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
         const SingleActivator(LogicalKeyboardKey.keyZ, meta: true, shift: true): _redoAction,
         const SingleActivator(LogicalKeyboardKey.keyC, meta: true): _copyImage,
         const SingleActivator(LogicalKeyboardKey.keyC, meta: true, shift: true): copyAnimatedGif,
+        if (Platform.isMacOS) const SingleActivator(LogicalKeyboardKey.keyC, meta: true, control: true): copySticker,
         const SingleActivator(LogicalKeyboardKey.keyS, meta: true): save,
         const SingleActivator(LogicalKeyboardKey.keyS, meta: true, shift: true): saveAs,
         _cmd(LogicalKeyboardKey.equal): zoomIn,
@@ -1684,6 +1700,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
                   ('export', Icons.ios_share, 'Save As…'),
                   ('gif', Icons.gif_box_outlined, 'Save as Animated GIF…'),
                   ('copyGif', Icons.gif_outlined, 'Copy as Animated GIF  ⇧⌘C'),
+                  if (Platform.isMacOS) ('copySticker', Icons.emoji_emotions_outlined, 'Copy as Sticker  ⌃⌘C'),
                   ('settings', Icons.settings_outlined, 'Settings…'),
                 ],
                 onSelected: (v) {
@@ -1696,6 +1713,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
                     case 'export': saveAs();
                     case 'gif': saveAnimatedGif();
                     case 'copyGif': copyAnimatedGif();
+                    case 'copySticker': copySticker();
                     case 'settings': Native.shell('settings');
                   }
                 },

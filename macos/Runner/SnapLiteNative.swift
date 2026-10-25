@@ -87,6 +87,9 @@ final class SnapLiteNative {
       NSPasteboard.general.clearContents()
       NSPasteboard.general.writeObjects([item])
       result(nil)
+    case "copySticker":
+      guard let png = (args["png"] as? FlutterStandardTypedData)?.data else { result(nil); return }
+      Sticker.copy(png: png, name: args["name"] as? String ?? "SnapLite", result: result)
     case "copyTextOfFile":
       guard let path = args["path"] as? String, let data = FileManager.default.contents(atPath: path),
             let src = CGImageSourceCreateWithData(data as CFData, nil),
@@ -340,6 +343,82 @@ private final class FormatPicker: NSObject {
     panel.allowedContentTypes = [format.type]
     let base = (panel.nameFieldStringValue as NSString).deletingPathExtension
     panel.nameFieldStringValue = "\(base).\(format.type.preferredFilenameExtension ?? format.name.lowercased())"
+  }
+}
+
+/// ⌃⌘C: the finished image as a WhatsApp sticker, a 512×512 WebP with a transparent margin, at most
+/// 100 KB. WhatsApp pastes it as a sticker when the clipboard has the WebP data and the file.
+/// (Animated WebP pastes as its first frame only, so animation stays with the GIF, ⇧⌘C.)
+enum Sticker {
+  static let side = 512, maxBytes = 100_000
+
+  static func copy(png: Data, name: String, result: @escaping FlutterResult) {
+    DispatchQueue.global(qos: .userInitiated).async {
+      let webp = encode(png: png)
+      DispatchQueue.main.async {
+        guard let webp else {
+          result(FlutterError(code: "sticker", message: "Couldn't make the sticker", details: nil)); return
+        }
+        do {
+          let dir = FileManager.default.temporaryDirectory.appendingPathComponent("SnapLite Stickers")
+          try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+          let url = dir.appendingPathComponent(name).appendingPathExtension("webp")
+          try webp.write(to: url)
+          let item = NSPasteboardItem()
+          item.setData(webp, forType: NSPasteboard.PasteboardType("org.webmproject.webp"))
+          item.setString(url.absoluteString, forType: .fileURL)
+          NSPasteboard.general.clearContents()
+          NSPasteboard.general.writeObjects([item])
+          result(url.path)
+        } catch {
+          result(FlutterError(code: "sticker", message: error.localizedDescription, details: nil))
+        }
+      }
+    }
+  }
+
+  /// Lowers the quality first, then the picture's size, until it fits; nil if even the smallest try doesn't.
+  static func encode(png: Data) -> Data? {
+    guard let src = CGImageSourceCreateWithData(png as CFData, nil),
+          let image = CGImageSourceCreateImageAtIndex(src, 0, nil) else { return nil }
+    for fill in [1.0, 0.8, 0.6] {
+      guard var rgba = pixels(image, fill: fill) else { return nil }
+      for quality: Float in [85, 75, 65, 55, 45] {
+        if let data = webp(&rgba, quality: quality), data.count <= maxBytes { return data }
+      }
+    }
+    return nil
+  }
+
+  /// The image fitted inside the square (16 px margin at full fill), as straight (unpremultiplied) RGBA.
+  static func pixels(_ image: CGImage, fill: Double) -> [UInt8]? {
+    var rgba = [UInt8](repeating: 0, count: side * side * 4)
+    let ok = rgba.withUnsafeMutableBytes { buf -> Bool in
+      guard let ctx = CGContext(data: buf.baseAddress, width: side, height: side, bitsPerComponent: 8,
+                                bytesPerRow: side * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+      let box = (Double(side) - 32) * fill
+      let scale = min(box / Double(image.width), box / Double(image.height))
+      let w = Double(image.width) * scale, h = Double(image.height) * scale
+      ctx.interpolationQuality = .high
+      ctx.draw(image, in: CGRect(x: (Double(side) - w) / 2, y: (Double(side) - h) / 2, width: w, height: h))
+      return true
+    }
+    guard ok else { return nil }
+    for i in stride(from: 0, to: rgba.count, by: 4) {
+      let a = Int(rgba[i + 3])
+      guard a > 0, a < 255 else { continue }
+      for c in 0..<3 { rgba[i + c] = UInt8(min(255, Int(rgba[i + c]) * 255 / a)) }
+    }
+    return rgba
+  }
+
+  static func webp(_ rgba: inout [UInt8], quality: Float) -> Data? {
+    var out: UnsafeMutablePointer<UInt8>?
+    let size = WebPEncodeRGBA(&rgba, Int32(side), Int32(side), Int32(side * 4), quality, &out)
+    guard size > 0, let out else { return nil }
+    defer { WebPFree(out) }
+    return Data(bytes: out, count: size)
   }
 }
 
