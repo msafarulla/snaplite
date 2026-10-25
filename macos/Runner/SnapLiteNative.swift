@@ -90,6 +90,10 @@ final class SnapLiteNative {
     case "copySticker":
       guard let png = (args["png"] as? FlutterStandardTypedData)?.data else { result(nil); return }
       Sticker.copy(png: png, name: args["name"] as? String ?? "SnapLite", result: result)
+    case "addWhatsAppSticker":
+      guard let frames = (args["frames"] as? FlutterStandardTypedData)?.data,
+            let durations = args["durations"] as? [Int] else { result(nil); return }
+      WhatsAppPack.add(frames: frames, durations: durations, result: result)
     case "copyTextOfFile":
       guard let path = args["path"] as? String, let data = FileManager.default.contents(atPath: path),
             let src = CGImageSourceCreateWithData(data as CFData, nil),
@@ -348,7 +352,7 @@ private final class FormatPicker: NSObject {
 
 /// ⌃⌘C: the finished image as a WhatsApp sticker, a 512×512 WebP with a transparent margin, at most
 /// 100 KB. WhatsApp pastes it as a sticker when the clipboard has the WebP data and the file.
-/// (Animated WebP pastes as its first frame only, so animation stays with the GIF, ⇧⌘C.)
+/// (A pasted animated WebP shows only its first frame, so animated stickers go through WhatsAppPack.)
 enum Sticker {
   static let side = 512, maxBytes = 100_000
 
@@ -419,6 +423,157 @@ enum Sticker {
     guard size > 0, let out else { return nil }
     defer { WebPFree(out) }
     return Data(bytes: out, count: size)
+  }
+}
+
+/// ⌃⌘C with markup: the build-up animation as an animated WhatsApp sticker. WhatsApp keeps pasted or
+/// dropped stickers still and animates only stickers from installed packs, so SnapLite keeps one pack
+/// (its newest 30 stickers) and hands the whole pack over the way sticker apps do: JSON on the
+/// pasteboard, then whatsapp://stickerPack. Sending the same identifier again updates the pack.
+enum WhatsAppPack {
+  static let identifier = "com.mm.snaplite.stickers", keep = 30, minimum = 3, maxBytes = 490_000
+  static let handOff = URL(string: "whatsapp://stickerPack")!
+  static let pasteboardType = NSPasteboard.PasteboardType("net.whatsapp.third-party.sticker-pack")
+  static var folder: URL {
+    FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+      .appendingPathComponent("SnapLite/WhatsApp Stickers")
+  }
+
+  /// frames: 512×512 straight RGBA frames back to back; durations in ms, one per frame.
+  static func add(frames: Data, durations: [Int], result: @escaping FlutterResult) {
+    func fail(_ message: String) { result(FlutterError(code: "whatsapp", message: message, details: nil)) }
+    guard NSWorkspace.shared.urlForApplication(toOpen: handOff) != nil else { return fail("WhatsApp isn't installed") }
+    let frameBytes = Sticker.side * Sticker.side * 4
+    guard !durations.isEmpty, frames.count == frameBytes * durations.count else { return fail("Couldn't make the sticker") }
+    DispatchQueue.global(qos: .userInitiated).async {
+      do {
+        let json = try store(frames: frames, durations: durations)
+        DispatchQueue.main.async { handOver(json); result(nil) }
+      } catch {
+        DispatchQueue.main.async { fail(error.localizedDescription) }
+      }
+    }
+  }
+
+  /// Saves the new sticker, keeps the pack within WhatsApp's 3–30, and returns the pack's JSON.
+  /// Until there are 3 real stickers the pack is filled with copies of the newest (pad-*), removed as real ones arrive.
+  static func store(frames: Data, durations: [Int]) throws -> Data {
+    let fm = FileManager.default
+    try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+    var quality: Float = 75
+    var webp: Data?
+    for q: Float in [75, 60, 45, 30] {
+      quality = q
+      if let data = animated(frames, durations, quality: q), data.count <= maxBytes { webp = data; break }
+    }
+    guard let webp else { throw NSError(domain: "whatsapp", code: 1, userInfo: [NSLocalizedDescriptionKey: "The animation is too big for a sticker"]) }
+    let stamp = Int(Date().timeIntervalSince1970 * 1000)
+    try webp.write(to: folder.appendingPathComponent("\(stamp).webp"))
+
+    let files = try fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil).filter { $0.pathExtension == "webp" }
+    files.filter { $0.lastPathComponent.hasPrefix("pad-") }.forEach { try? fm.removeItem(at: $0) }
+    var real = files.filter { !$0.lastPathComponent.hasPrefix("pad-") }
+      .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedDescending }
+    real.dropFirst(keep).forEach { try? fm.removeItem(at: $0) }
+    real = Array(real.prefix(keep))
+    var pads: [URL] = []
+    for i in 0..<max(0, minimum - real.count) {
+      // A slightly different encoding, so WhatsApp doesn't see the same file twice
+      guard let copy = animated(frames, durations, quality: max(10, quality - Float(5 * (i + 1)))) else { continue }
+      let url = folder.appendingPathComponent("pad-\(stamp)-\(i).webp")
+      try copy.write(to: url)
+      pads.append(url)
+    }
+
+    let stickers: [[String: Any]] = try (real + pads).map {
+      ["image_data": try Data(contentsOf: $0).base64EncodedString(), "emojis": ["👉"]]
+    }
+    let lastFrame = frames.suffix(Sticker.side * Sticker.side * 4)
+    let pack: [String: Any] = [
+      "identifier": identifier, "name": "SnapLite", "publisher": "SnapLite",
+      "tray_image": tray(from: Data(lastFrame))?.base64EncodedString() ?? "",
+      "animated_sticker_pack": true, "ios_app_store_link": "", "android_play_store_link": "",
+      "stickers": stickers,
+    ]
+    return try JSONSerialization.data(withJSONObject: pack)
+  }
+
+  /// Puts the pack on the pasteboard and opens WhatsApp, which reads it from there. Whatever was copied
+  /// before comes back a minute later, unless something new has been copied meanwhile.
+  static func handOver(_ json: Data) {
+    let pb = NSPasteboard.general
+    let saved = (pb.pasteboardItems ?? []).map { item in
+      item.types.reduce(into: [NSPasteboard.PasteboardType: Data]()) { $0[$1] = item.data(forType: $1) }
+    }
+    pb.clearContents()
+    pb.setData(json, forType: pasteboardType)
+    let ours = pb.changeCount
+    NSWorkspace.shared.open(handOff)
+    DispatchQueue.main.asyncAfter(deadline: .now() + 60) {
+      guard pb.changeCount == ours else { return }
+      pb.clearContents()
+      if saved.isEmpty { return }
+      pb.writeObjects(saved.map { types in
+        let item = NSPasteboardItem()
+        for (type, data) in types { item.setData(data, forType: type) }
+        return item
+      })
+    }
+  }
+
+  static func animated(_ frames: Data, _ durations: [Int], quality: Float) -> Data? {
+    let side = Int32(Sticker.side), frameBytes = Sticker.side * Sticker.side * 4
+    var options = WebPAnimEncoderOptions()
+    guard WebPAnimEncoderOptionsInit(&options) != 0 else { return nil }
+    options.anim_params.loop_count = 0
+    guard let encoder = WebPAnimEncoderNew(side, side, &options) else { return nil }
+    defer { WebPAnimEncoderDelete(encoder) }
+    var config = WebPConfig()
+    guard WebPConfigInit(&config) != 0 else { return nil }
+    config.quality = quality
+    config.method = 4
+    var time: Int32 = 0
+    let ok = frames.withUnsafeBytes { raw -> Bool in
+      for (i, ms) in durations.enumerated() {
+        var picture = WebPPicture()
+        guard WebPPictureInit(&picture) != 0 else { return false }
+        picture.width = side
+        picture.height = side
+        picture.use_argb = 1
+        let pixels = raw.baseAddress!.advanced(by: i * frameBytes).assumingMemoryBound(to: UInt8.self)
+        defer { WebPPictureFree(&picture) }
+        guard WebPPictureImportRGBA(&picture, pixels, side * 4) != 0,
+              WebPAnimEncoderAdd(encoder, &picture, time, &config) != 0 else { return false }
+        time += Int32(ms)
+      }
+      return WebPAnimEncoderAdd(encoder, nil, time, nil) != 0
+    }
+    guard ok else { return nil }
+    var data = WebPData()
+    WebPDataInit(&data)
+    defer { WebPDataClear(&data) }
+    guard WebPAnimEncoderAssemble(encoder, &data) != 0, let bytes = data.bytes else { return nil }
+    return Data(bytes: bytes, count: data.size)
+  }
+
+  /// The pack's icon in WhatsApp: the finished picture, 96×96 PNG.
+  static func tray(from rgba: Data) -> Data? {
+    let side = Sticker.side
+    guard let provider = CGDataProvider(data: rgba as CFData),
+          let image = CGImage(width: side, height: side, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: side * 4,
+                              space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                              bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue),
+                              provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent),
+          let ctx = CGContext(data: nil, width: 96, height: 96, bitsPerComponent: 8, bytesPerRow: 0,
+                              space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+    ctx.interpolationQuality = .high
+    ctx.draw(image, in: CGRect(x: 0, y: 0, width: 96, height: 96))
+    guard let small = ctx.makeImage() else { return nil }
+    let out = NSMutableData()
+    guard let dst = CGImageDestinationCreateWithData(out, UTType.png.identifier as CFString, 1, nil) else { return nil }
+    CGImageDestinationAddImage(dst, small, nil)
+    return CGImageDestinationFinalize(dst) ? out as Data : nil
   }
 }
 

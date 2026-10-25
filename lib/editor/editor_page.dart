@@ -940,9 +940,34 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     }
   }
 
-  /// ⌃⌘C: the finished image as a WhatsApp sticker. Pasted into WhatsApp it arrives as a sticker
-  /// (animated stickers only paste as their first frame there, so animation is ⇧⌘C's GIF).
+  /// ⌃⌘C: the build-up animation as a WhatsApp sticker. WhatsApp only animates stickers from installed
+  /// packs, so it goes into SnapLite's pack and WhatsApp offers to add (or update) it. No markup = still sticker.
   Future<void> copySticker() async {
+    _endTextEdit();
+    final s = _state;
+    if (s == null) return;
+    if (s.annotations.isEmpty) return copyStillSticker();
+    try {
+      await Native.toast('Making sticker…', symbol: 'hourglass');
+      final frames = await BuildUpGif.stickerFrames(s);
+      final all = Uint8List(frames.fold(0, (n, f) => n + f.rgba.length));
+      var at = 0;
+      for (final f in frames) {
+        all.setAll(at, f.rgba);
+        at += f.rgba.length;
+      }
+      await Native.addWhatsAppSticker(all, [for (final f in frames) f.ms]);
+      await Native.toast('Sent to WhatsApp: add it, then pick it from the SnapLite stickers');
+    } on PlatformException catch (e) {
+      await Native.toast(e.message ?? "Couldn't make the sticker", symbol: 'exclamationmark.triangle.fill');
+    } catch (e, st) {
+      debugPrint('Sticker: $e\n$st');
+      await Native.toast("Couldn't make the sticker", symbol: 'exclamationmark.triangle.fill');
+    }
+  }
+
+  /// The finished image as a still WhatsApp sticker on the clipboard (pastes into a chat as a sticker).
+  Future<void> copyStillSticker() async {
     _endTextEdit();
     final png = await _flatPng();
     if (png == null) return;
@@ -1700,7 +1725,8 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
                   ('export', Icons.ios_share, 'Save As…'),
                   ('gif', Icons.gif_box_outlined, 'Save as Animated GIF…'),
                   ('copyGif', Icons.gif_outlined, 'Copy as Animated GIF  ⇧⌘C'),
-                  if (Platform.isMacOS) ('copySticker', Icons.emoji_emotions_outlined, 'Copy as Sticker  ⌃⌘C'),
+                  if (Platform.isMacOS) ('copySticker', Icons.emoji_emotions_outlined, 'Animated WhatsApp Sticker  ⌃⌘C'),
+                  if (Platform.isMacOS) ('copyStillSticker', Icons.emoji_emotions_outlined, 'Copy as Still Sticker'),
                   ('settings', Icons.settings_outlined, 'Settings…'),
                 ],
                 onSelected: (v) {
@@ -1714,6 +1740,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
                     case 'gif': saveAnimatedGif();
                     case 'copyGif': copyAnimatedGif();
                     case 'copySticker': copySticker();
+                    case 'copyStillSticker': copyStillSticker();
                     case 'settings': Native.shell('settings');
                   }
                 },

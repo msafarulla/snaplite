@@ -42,6 +42,10 @@ class Native {
   /// The image as a WhatsApp sticker (512×512 WebP) on the clipboard; returns the sticker file's path.
   static Future<String?> copySticker(Uint8List png, {required String name}) =>
       _call<String>('copySticker', {'png': png, 'name': name});
+  /// Adds an animated sticker (same-size straight RGBA frames, back to back) to SnapLite's WhatsApp sticker
+  /// pack and hands the pack to WhatsApp, which animates stickers only from installed packs.
+  static Future<void> addWhatsAppSticker(Uint8List frames, List<int> durationsMs) =>
+      _call('addWhatsAppSticker', {'frames': frames, 'durations': durationsMs});
   static Future<String?> exportGif(String path) => _call<String>('exportGIF', {'path': path});
   /// Save panel with a Format menu (PNG, JPEG, HEIC, TIFF, PDF, GIF, BMP); returns the saved path,
   /// null when cancelled, and throws a PlatformException when writing fails.

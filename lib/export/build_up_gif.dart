@@ -30,7 +30,6 @@ class BuildUpGif {
   static Future<Uint8List> render(CanvasState s) async {
     final k = outputScale(s);
     final w = math.max(1, (s.image.width * k).round()), h = math.max(1, (s.image.height * k).round());
-    final order = [...s.annotations]..sort((a, b) => a.id.compareTo(b.id)); // the order they were added
     final progress = <int, double>{};
     final frames = <GifFrame>[];
     Uint32List? previous;
@@ -51,6 +50,15 @@ class BuildUpGif {
       previous = pixels;
     }
 
+    await _timeline(s, progress, fps, frame, (d) => frames.last.delayMs += d.inMilliseconds);
+    return _encodeInBackground(w, h, frames);
+  }
+
+  /// The animation itself: the original, then each annotation appearing in the order it was added.
+  /// [frame] shows the current [progress] for a while; [hold] lengthens the frame on screen.
+  static Future<void> _timeline(CanvasState s, Map<int, double> progress, int fps,
+      Future<void> Function(Duration) frame, void Function(Duration) hold) async {
+    final order = [...s.annotations]..sort((a, b) => a.id.compareTo(b.id)); // the order they were added
     await frame(openingHold);
     for (final a in order) {
       final n = math.max(2, appearing(a).inMilliseconds * fps ~/ 1000);
@@ -59,10 +67,55 @@ class BuildUpGif {
         progress[a.id] = i / n;
         await frame(step);
       }
-      frames.last.delayMs += pauseAfterEach.inMilliseconds;
+      hold(pauseAfterEach);
     }
-    frames.last.delayMs += finalHold.inMilliseconds - pauseAfterEach.inMilliseconds;
-    return _encodeInBackground(w, h, frames);
+    hold(finalHold - pauseAfterEach);
+  }
+
+  static const stickerSide = 512, stickerFps = 12, stickerMaxMs = 9500;
+
+  /// The same animation as WhatsApp sticker frames: the picture fitted in a transparent 512×512 square
+  /// (16 px margin), full frames of straight RGBA, at most [stickerMaxMs] long (sped up to fit).
+  static Future<List<({Uint8List rgba, int ms})>> stickerFrames(CanvasState s) async {
+    const side = stickerSide, box = side - 32.0;
+    final k = math.min(box / s.image.width, box / s.image.height);
+    final w = s.image.width * k, h = s.image.height * k;
+    final at = Offset((side - w) / 2, (side - h) / 2);
+    final progress = <int, double>{};
+    final frames = <({Uint8List rgba, int ms})>[];
+    final ms = <int>[];
+
+    Future<void> frame(Duration delay) async {
+      final recorder = ui.PictureRecorder();
+      final canvas = Canvas(recorder)..translate(at.dx, at.dy);
+      canvas.clipRect(Rect.fromLTWH(0, 0, w, h));
+      canvas.drawRect(Rect.fromLTWH(0, 0, w, h), Paint()..color = Colors.white);
+      CanvasPainter(state: s, selectionId: null, scale: k, progress: progress).paint(canvas, Size(w, h));
+      final image = await recorder.endRecording().toImage(side, side);
+      final rgba = (await image.toByteData(format: ui.ImageByteFormat.rawStraightRgba))!.buffer.asUint8List();
+      image.dispose();
+      if (frames.isNotEmpty && _same(frames.last.rgba, rgba)) {
+        ms.last += delay.inMilliseconds;
+      } else {
+        frames.add((rgba: rgba, ms: 0));
+        ms.add(delay.inMilliseconds);
+      }
+    }
+
+    // Fewer frames per appearance when there's a lot of markup, so the frames (1 MB each) stay around 60
+    final fps = s.annotations.length <= 8 ? stickerFps : math.max(4, 96 ~/ s.annotations.length);
+    await _timeline(s, progress, fps, frame, (d) => ms.last += d.inMilliseconds);
+    final total = ms.fold(0, (a, b) => a + b);
+    final f = total > stickerMaxMs ? stickerMaxMs / total : 1.0;
+    return [for (var i = 0; i < frames.length; i++) (rgba: frames[i].rgba, ms: math.max(20, (ms[i] * f).floor()))];
+  }
+
+  static bool _same(Uint8List a, Uint8List b) {
+    final x = a.buffer.asUint32List(a.offsetInBytes, a.length ~/ 4), y = b.buffer.asUint32List(b.offsetInBytes, b.length ~/ 4);
+    for (var i = 0; i < x.length; i++) {
+      if (x[i] != y[i]) return false;
+    }
+    return true;
   }
 
   /// A closure of its own, so the isolate gets only the frames (not the canvas and its images).

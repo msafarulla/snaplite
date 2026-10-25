@@ -80,9 +80,12 @@ each annotation appears in the order you added it (arrows grow, boxes draw on, s
 wipe), and the finished picture holds at the end. Good for showing a step-by-step in a chat or a ticket.
 **⇧⌘C** copies that animated GIF straight to the clipboard, ready to paste into Messages, Slack, Mail or WhatsApp.
 
-**⌃⌘C** copies the finished picture as a WhatsApp sticker (512×512 WebP with a transparent margin): paste it
-into a WhatsApp chat on the Mac and it goes as a sticker. WhatsApp only shows the first frame of a pasted
-animated sticker, so for movement use ⇧⌘C.
+**⌃⌘C** makes that same build-up an **animated WhatsApp sticker**. WhatsApp only animates stickers from
+installed packs, so SnapLite keeps a "SnapLite" pack (your newest 30 stickers) and hands it to WhatsApp for Mac,
+which asks to add or update it; then pick the sticker from the SnapLite tab in the sticker tray. While the pack
+has fewer than 3 stickers (WhatsApp's minimum) it is filled with copies of the newest. The clipboard is used for
+the hand-off and restored a minute later. With no markup, ⌃⌘C copies a still sticker that pastes straight into
+a chat (also in More › Copy as Still Sticker).
 
 **Changed your mind later?** ⌘S keeps your markup inside the saved PNG. Any app shows the finished picture, but
 when you reopen it in SnapLite the original capture and every annotation come back, still editable and in the
