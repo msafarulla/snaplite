@@ -14,6 +14,7 @@ import 'package:window_manager/window_manager.dart';
 import '../app/app_controller.dart';
 import '../export/build_up_gif.dart';
 import '../model/annotation.dart';
+import '../model/markup_file.dart';
 import '../platform/native.dart';
 import 'canvas_painter.dart';
 import 'properties_panel.dart';
@@ -738,12 +739,20 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
   Future<void> openFile(String path) async {
     final bytes = await File(path).readAsBytes(); // read fully first: the file may be rewritten later
     if (bytes.isEmpty) return;
-    final frame = await (await ui.instantiateImageCodec(bytes)).getNextFrame();
-    // Retina captures record 144 dpi; images without DPI info count as Retina when they are large
-    final density = await Native.imageDensity(path) ?? (frame.image.width > 1800 ? 2.0 : 1.0);
+    // Saved by SnapLite with its markup: the original capture and every annotation come back, still editable
+    var state = await MarkupFile.read(bytes);
+    if (state == null) {
+      final frame = await (await ui.instantiateImageCodec(bytes)).getNextFrame();
+      // Retina captures record 144 dpi; images without DPI info count as Retina when they are large
+      final density = await Native.imageDensity(path) ?? (frame.image.width > 1800 ? 2.0 : 1.0);
+      state = CanvasState(image: frame.image, density: density);
+    }
+    for (final a in state.annotations) {
+      if (a.id >= _nextId) _nextId = a.id + 1;
+    }
     setState(() {
       _undo.clear(); _redo.clear(); _selection = null;
-      _state = CanvasState(image: frame.image, density: density);
+      _state = state;
       _path = path;
       _savedState = _state;
       _imageSelected = false;
@@ -778,13 +787,19 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     _showCopied();
   }
 
-  /// Saves back to the capture's file, or a new file in Pictures › SnapLite.
+  /// Saves back to the capture's file, or a new file in Pictures › SnapLite. The file is the finished
+  /// image with the markup kept inside it, so reopening it later brings the annotations back.
   Future<void> save() async {
     _endTextEdit();
-    final png = await _flatPng();
+    var png = await _flatPng();
     if (png == null) return;
+    try {
+      png = await MarkupFile.embed(png, _state!);
+    } catch (e, st) {
+      debugPrint('Markup not kept: $e\n$st'); // still save the picture
+    }
     final path = _path ?? AppController.newCapturePath();
-    await File(path).writeAsBytes(png, flush: true);
+    await File(path).writeAsBytes(png!, flush: true);
     _path = path;
     setState(() => _savedState = _state);
     await windowManager.setTitle('SnapLite — ${path.split('/').last}');
