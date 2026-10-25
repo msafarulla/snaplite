@@ -80,6 +80,11 @@ each annotation appears in the order you added it (arrows grow, boxes draw on, s
 wipe), and the finished picture holds at the end. Good for showing a step-by-step in a chat or a ticket.
 **⇧⌘C** copies that animated GIF straight to the clipboard, ready to paste into Messages, Slack or Mail.
 
+**Changed your mind later?** ⌘S keeps your markup inside the saved PNG. Any app shows the finished picture, but
+when you reopen it in SnapLite the original capture and every annotation come back, still editable and in the
+order you added them, so you can fix an arrow or make the animated GIF days afterwards. If another app edits the
+picture, it simply opens flat.
+
 ![An animated GIF made by SnapLite: curved arrows draw themselves onto a dashboard capture, one after another](docs/screenshots/build-up.gif)
 
 **Zoom:** pinch, ⌘-scroll, or ⌘= / ⌘- / ⌘0 (fit) / ⌘1 (100%); scroll or hold Space and drag to pan.
