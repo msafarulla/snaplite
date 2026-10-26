@@ -13,6 +13,12 @@ class AppDelegate: FlutterAppDelegate {
     return false
   }
 
+  // Dock icon clicked while every window is hidden (e.g. ⌘W in the editor): bring the Library back.
+  override func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+    if !flag { Shell.shared.showLibrary() }
+    return true
+  }
+
   override func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
     return true
   }
