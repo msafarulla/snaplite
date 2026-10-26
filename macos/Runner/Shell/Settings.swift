@@ -6,6 +6,8 @@ enum Prefs {
     static let openEditor = "openEditorAfterCapture"
     static let copyImage = "copyAfterCapture"
     static let microphone = "recordMicrophone"
+    /// Format Save As starts on; empty means the last one used.
+    static let saveAsFormat = "saveAs.defaultFormat"
 }
 
 /// Which tools get a toolbar button; the rest are under More.
@@ -112,6 +114,14 @@ final class SettingsWindowController: NSWindowController {
                                           action: #selector(prefToggled(_:)), key: Prefs.microphone))
         stack.addArrangedSubview(checkbox("Open SnapLite at login", on: SMAppService.mainApp.status == .enabled,
                                           action: #selector(loginToggled(_:))))
+        let format = NSPopUpButton(frame: .zero, pullsDown: false)
+        let names = SaveAs.available.map(\.name)
+        format.addItems(withTitles: ["Last Used"] + names)
+        format.selectItem(at: names.firstIndex(of: defaults.string(forKey: Prefs.saveAsFormat) ?? "").map { $0 + 1 } ?? 0)
+        format.target = self
+        format.action = #selector(saveAsFormatChosen(_:))
+        stack.addArrangedSubview(row("Save As format", format))
+        stack.addArrangedSubview(note("⇧⌘S starts on this format. Captures stay PNG so their markup stays editable."))
 
         // Shortcuts
         stack.addArrangedSubview(separator())
@@ -211,6 +221,11 @@ final class SettingsWindowController: NSWindowController {
     @objc private func prefToggled(_ sender: NSButton) {
         guard let key = sender.identifier?.rawValue else { return }
         UserDefaults.standard.set(sender.state == .on, forKey: key)
+    }
+
+    @objc private func saveAsFormatChosen(_ sender: NSPopUpButton) {
+        let index = sender.indexOfSelectedItem
+        UserDefaults.standard.set(index > 0 ? sender.titleOfSelectedItem : "", forKey: Prefs.saveAsFormat)
     }
 
     /// Rejects reserved and duplicate combinations; otherwise saves, which re-registers the hotkeys.

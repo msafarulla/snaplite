@@ -263,8 +263,12 @@ enum SaveAs {
     panel.canCreateDirectories = true
     panel.isExtensionHidden = false
     panel.nameFieldStringValue = name
+    // Settings › Save As format when it's set and still writable here, else the last one used
+    let chosen = UserDefaults.standard.string(forKey: Prefs.saveAsFormat).flatMap { name in
+      formats.contains { $0.name == name } ? name : nil
+    }
     let picker = FormatPicker(panel: panel, formats: formats,
-                              selected: UserDefaults.standard.string(forKey: lastKey))
+                              selected: chosen ?? UserDefaults.standard.string(forKey: lastKey))
     let done: (NSApplication.ModalResponse) -> Void = { response in
       guard response == .OK, let url = panel.url else { result(nil); return }
       let format = picker.format
