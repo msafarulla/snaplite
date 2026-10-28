@@ -45,7 +45,7 @@ final class DockPresence {
     func update() {
         DispatchQueue.main.async {
             let open = NSApp.windows.contains { w in
-                w.styleMask.contains(.titled) && !(w is NSPanel) && w.level == .normal
+                w.styleMask.contains(.titled) && !(w is NSPanel) && (w.level == .normal || w.level == .floating) // floating = pinned
                     && (w.isVisible || w.isMiniaturized)
             }
             let wanted: NSApplication.ActivationPolicy = open ? .regular : .accessory

@@ -87,6 +87,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     super.initState();
     _makeBlankCanvas(1200, 800);
     _loadPrefs();
+    Native.getBool('pinOnTop').then((on) { if (on == true && !_pinTouched) _setPinned(true, save: false); });
     _textController.addListener(_textChanged);
     Native.onColorPicked = (rgb) => pickColor(Color(0xFF000000 | rgb), refresh: false);
   }
@@ -173,6 +174,18 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
   /// After Copy, "marching ants" run around the image until the next edit or click.
   bool _copied = false;
   final _ants = ValueNotifier<double>(0);
+
+  /// Pin keeps the window above other apps (⌥⌘T); remembered between launches.
+  bool _pinned = false;
+  bool _pinTouched = false; // a click before the saved setting loads wins
+
+  void _setPinned(bool on, {bool save = true}) {
+    if (!mounted) return;
+    if (save) _pinTouched = true;
+    setState(() => _pinned = on);
+    windowManager.setAlwaysOnTop(on);
+    if (save) Native.setBool('pinOnTop', on);
+  }
   Timer? _antsTimer;
   /// Marching Ants lines run while any annotation uses them (one dash cycle every 0.8 s).
   final _march = ValueNotifier<double>(0);
@@ -1497,6 +1510,8 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
         _cmd(LogicalKeyboardKey.digit0): zoomToFit,
         _cmd(LogicalKeyboardKey.digit1): zoomActualSize,
         const SingleActivator(LogicalKeyboardKey.keyO, meta: true): openImageDialog,
+        SingleActivator(LogicalKeyboardKey.keyT, meta: Platform.isMacOS, control: !Platform.isMacOS, alt: true):
+            () => _setPinned(!_pinned),
         const SingleActivator(LogicalKeyboardKey.keyW, meta: true): AppController.instance.onWindowClose,
         const SingleActivator(LogicalKeyboardKey.keyA, meta: true): selectImage,
         const SingleActivator(LogicalKeyboardKey.delete): _deleteSelection,
@@ -1865,6 +1880,8 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
             ]),
           ),
         ),
+        _ToolButton(icon: _pinned ? Icons.push_pin : Icons.push_pin_outlined, label: 'Pin', active: _pinned,
+            onTap: () => _setPinned(!_pinned)),
         _ToolButton(icon: Icons.undo, label: 'Undo', onTap: _undo.isEmpty ? null : _undoAction),
         _ToolButton(icon: Icons.redo, label: 'Redo', onTap: _redo.isEmpty ? null : _redoAction),
         const SizedBox(width: 6),
