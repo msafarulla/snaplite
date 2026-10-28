@@ -110,8 +110,8 @@ all your captures below.
 
 ## Install
 
-Download the latest build for your system from **[Releases](https://github.com/msafarulla/snaplite/releases/latest)**.
-Every build is made and tested by [GitHub Actions](https://github.com/msafarulla/snaplite/actions) from this
+Download the latest build for your system from **[Releases](https://github.com/msafarulla/snapnow/releases/latest)**.
+Every build is made and tested by [GitHub Actions](https://github.com/msafarulla/snapnow/actions) from this
 repository's source.
 
 | | File | Status |
@@ -166,7 +166,7 @@ in).
 by hand yet. The editor (open an image, mark it up, save) is the part meant to work. Screen capture, recording,
 Copy Text (OCR), notifications and Library thumbnails are macOS-only for now; they'll follow once I have
 Windows and Linux machines to build and test them on. Bug reports are welcome in
-[Issues](https://github.com/msafarulla/snaplite/issues).
+[Issues](https://github.com/msafarulla/snapnow/issues).
 
 ### Build from source (macOS)
 
@@ -174,8 +174,8 @@ Windows and Linux machines to build and test them on. Bug reports are welcome in
 or later, CocoaPods, and libwebp (`brew install webp`; linked into the app, so users don't need it).
 
 ```sh
-git clone https://github.com/msafarulla/snaplite.git
-cd snaplite
+git clone https://github.com/msafarulla/snapnow.git
+cd snapnow
 tools/install.sh        # builds, signs, installs to /Applications and launches
 ```
 
@@ -200,7 +200,7 @@ install Flutter and run `flutter build windows` or `flutter build linux`.
 - **Builds:** macOS, Windows and Linux. The Windows and Linux builds are also launched for 15 seconds to make sure
   they start.
 
-Each run's builds can be downloaded from its page under [Actions](https://github.com/msafarulla/snaplite/actions).
+Each run's builds can be downloaded from its page under [Actions](https://github.com/msafarulla/snapnow/actions).
 
 **Publishing a release** takes a version tag. Bump `version:` in `pubspec.yaml`, commit, then:
 
@@ -210,7 +210,7 @@ git push origin v1.13.0
 ```
 
 The same workflow builds all three platforms and, only if every job passes, publishes them as a
-[GitHub Release](https://github.com/msafarulla/snaplite/releases) with notes generated from the commits.
+[GitHub Release](https://github.com/msafarulla/snapnow/releases) with notes generated from the commits.
 
 ## Roadmap
 
