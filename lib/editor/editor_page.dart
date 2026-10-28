@@ -168,6 +168,9 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
   bool _copied = false;
   final _ants = ValueNotifier<double>(0);
   Timer? _antsTimer;
+  /// Marching Ants lines run while any annotation uses them (one dash cycle every 0.8 s).
+  final _march = ValueNotifier<double>(0);
+  Timer? _marchTimer;
   /// Resizing the canvas by its square handles: handle index, new rect (image coords), grab offset.
   (int, Rect, Offset)? _canvasDrag;
   double _viewScale = 1; // view points per image point, from the last layout
@@ -273,9 +276,21 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     setState(() => _copied = false);
   }
 
+  void _syncMarch(CanvasState state) {
+    final needed = state.annotations.any((a) => a.styleKind != null && a.arrowStyle.pattern.marches);
+    if (needed && _marchTimer == null) {
+      _marchTimer = Timer.periodic(const Duration(milliseconds: 40), (_) => _march.value = (_march.value + 0.05) % 1);
+    } else if (!needed && _marchTimer != null) {
+      _marchTimer!.cancel();
+      _marchTimer = null;
+    }
+  }
+
   @override
   void dispose() {
     _antsTimer?.cancel();
+    _marchTimer?.cancel();
+    _march.dispose();
     super.dispose();
   }
 
@@ -1423,6 +1438,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
   /// The canvas: the image centred with a soft shadow, and one full-size input/paint layer over the whole
   /// area, so the canvas handles (just outside the image) and drags past its edges work.
   Widget _canvasArea(CanvasState state) {
+    _syncMarch(state);
     return LayoutBuilder(builder: (context, constraints) {
       const pad = 20.0;
       final iw = state.image.width.toDouble(), ih = state.image.height.toDouble();
@@ -1493,13 +1509,15 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
                     onPointerPanZoomUpdate: _onPanZoomUpdate,
                     child: CustomPaint(
                       painter: _PreviewPainter(
-                        base: CanvasPainter(state: state, selectionId: _selection, scale: scale, hiddenTextId: _textEdit?.id),
+                        base: CanvasPainter(state: state, selectionId: _selection, scale: scale, hiddenTextId: _textEdit?.id,
+                            march: _march),
                         origin: origin,
                         tool: _tool, color: _color, size: _size, scale: scale,
                         style: kind == null ? ArrowStyle.arrow : _styleFor(kind),
                         createStart: _createStart, createCurrent: _createCurrent, penPoints: _penPoints,
                         canvasChrome: _showsCanvasHandles || _canvasDrag != null,
                         ants: _copied ? _ants : null,
+                        march: _march,
                         canvasResize: _canvasDrag?.$2,
                         boundsOfSelection: _textEdit != null || selected == null || selected!.rect != null ? null : _bounds(selected!),
                       ),
@@ -1855,13 +1873,14 @@ class _PreviewPainter extends CustomPainter {
   final List<Offset>? penPoints;
   final bool canvasChrome;
   final ValueNotifier<double>? ants;
+  final ValueNotifier<double> march;
   final Rect? canvasResize;
   final Rect? boundsOfSelection;
 
   _PreviewPainter({required this.base, required this.origin, required this.tool, required this.color, required this.size,
       required this.scale, required this.style, this.createStart, this.createCurrent, this.penPoints,
-      this.canvasChrome = false, this.ants, this.canvasResize, this.boundsOfSelection})
-      : super(repaint: ants);
+      this.canvasChrome = false, this.ants, required this.march, this.canvasResize, this.boundsOfSelection})
+      : super(repaint: Listenable.merge([ants, march]));
 
   static const _accent = Color(0xFF2F7CF6);
 

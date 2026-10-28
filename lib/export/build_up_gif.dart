@@ -2,6 +2,7 @@ import 'dart:isolate';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import '../editor/canvas_painter.dart';
 import '../model/annotation.dart';
@@ -31,12 +32,13 @@ class BuildUpGif {
     final k = outputScale(s);
     final w = math.max(1, (s.image.width * k).round()), h = math.max(1, (s.image.height * k).round());
     final progress = <int, double>{};
+    final march = ValueNotifier<double>(0);
     final frames = <GifFrame>[];
     Uint32List? previous;
 
     // Each frame keeps only the rectangle that changed; pixels in it that didn't change stay transparent.
     Future<void> frame(Duration delay) async {
-      final pixels = await _snapshot(s, progress, k, w, h);
+      final pixels = await _snapshot(s, progress, march, k, w, h);
       if (previous == null) {
         frames.add(GifFrame(0, 0, w, h, pixels.buffer.asUint8List(), delay.inMilliseconds));
       } else {
@@ -50,13 +52,14 @@ class BuildUpGif {
       previous = pixels;
     }
 
-    await _timeline(s, progress, fps, frame, (d) => frames.last.delayMs += d.inMilliseconds);
+    await _timeline(s, progress, march, fps, frame, (d) => frames.last.delayMs += d.inMilliseconds);
     return _encodeInBackground(w, h, frames);
   }
 
   /// The animation itself: the original, then each annotation appearing in the order it was added.
   /// [frame] shows the current [progress] for a while; [hold] lengthens the frame on screen.
-  static Future<void> _timeline(CanvasState s, Map<int, double> progress, int fps,
+  /// Marching Ants lines run during the final hold (still while they appear, so those frames stay small).
+  static Future<void> _timeline(CanvasState s, Map<int, double> progress, ValueNotifier<double> march, int fps,
       Future<void> Function(Duration) frame, void Function(Duration) hold) async {
     final order = [...s.annotations]..sort((a, b) => a.id.compareTo(b.id)); // the order they were added
     await frame(openingHold);
@@ -69,8 +72,18 @@ class BuildUpGif {
       }
       hold(pauseAfterEach);
     }
-    hold(finalHold - pauseAfterEach);
+    final rest = finalHold - pauseAfterEach;
+    if (!s.annotations.any((a) => a.styleKind != null && a.arrowStyle.pattern.marches)) return hold(rest);
+    final n = rest.inMilliseconds * fps ~/ 1000, step = Duration(microseconds: rest.inMicroseconds ~/ n);
+    for (var i = 1; i <= n; i++) {
+      march.value = (i / fps / marchCycle) % 1;
+      await frame(step);
+    }
+    march.value = 0;
   }
+
+  /// Seconds for marching ants to run one dash cycle (as in the editor).
+  static const marchCycle = 0.8;
 
   static const stickerSide = 512, stickerFps = 12, stickerMaxMs = 9500;
 
@@ -82,6 +95,7 @@ class BuildUpGif {
     final w = s.image.width * k, h = s.image.height * k;
     final at = Offset((side - w) / 2, (side - h) / 2);
     final progress = <int, double>{};
+    final march = ValueNotifier<double>(0);
     final frames = <({Uint8List rgba, int ms})>[];
     final ms = <int>[];
 
@@ -90,7 +104,7 @@ class BuildUpGif {
       final canvas = Canvas(recorder)..translate(at.dx, at.dy);
       canvas.clipRect(Rect.fromLTWH(0, 0, w, h));
       canvas.drawRect(Rect.fromLTWH(0, 0, w, h), Paint()..color = Colors.white);
-      CanvasPainter(state: s, selectionId: null, scale: k, progress: progress).paint(canvas, Size(w, h));
+      CanvasPainter(state: s, selectionId: null, scale: k, progress: progress, march: march).paint(canvas, Size(w, h));
       final image = await recorder.endRecording().toImage(side, side);
       final rgba = (await image.toByteData(format: ui.ImageByteFormat.rawStraightRgba))!.buffer.asUint8List();
       image.dispose();
@@ -104,7 +118,7 @@ class BuildUpGif {
 
     // Fewer frames per appearance when there's a lot of markup, so the frames (1 MB each) stay around 60
     final fps = s.annotations.length <= 8 ? stickerFps : math.max(4, 96 ~/ s.annotations.length);
-    await _timeline(s, progress, fps, frame, (d) => ms.last += d.inMilliseconds);
+    await _timeline(s, progress, march, fps, frame, (d) => ms.last += d.inMilliseconds);
     final total = ms.fold(0, (a, b) => a + b);
     final f = total > stickerMaxMs ? stickerMaxMs / total : 1.0;
     return [for (var i = 0; i < frames.length; i++) (rgba: frames[i].rgba, ms: math.max(20, (ms[i] * f).floor()))];
@@ -123,11 +137,13 @@ class BuildUpGif {
       Isolate.run(() => encodeGif(w, h, frames));
 
   /// One frame as opaque RGBA pixels (transparent canvas areas go on white, since GIF frames here are opaque).
-  static Future<Uint32List> _snapshot(CanvasState s, Map<int, double> progress, double k, int w, int h) async {
+  static Future<Uint32List> _snapshot(CanvasState s, Map<int, double> progress, ValueListenable<double> march, double k,
+      int w, int h) async {
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
     canvas.drawRect(Rect.fromLTWH(0, 0, w.toDouble(), h.toDouble()), Paint()..color = Colors.white);
-    CanvasPainter(state: s, selectionId: null, scale: k, progress: progress).paint(canvas, Size(w.toDouble(), h.toDouble()));
+    CanvasPainter(state: s, selectionId: null, scale: k, progress: progress, march: march)
+        .paint(canvas, Size(w.toDouble(), h.toDouble()));
     final image = await recorder.endRecording().toImage(w, h);
     final data = await image.toByteData(format: ui.ImageByteFormat.rawStraightRgba);
     image.dispose();

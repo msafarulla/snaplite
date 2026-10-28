@@ -31,9 +31,12 @@ enum HeadSize {
 }
 
 enum LinePattern {
-  solid, dashed, dotted, dashDot, longDash;
+  solid, dashed, dotted, dashDot, longDash, ants;
 
-  String get label => const ['Solid', 'Dashed', 'Dotted', 'Dash-Dot', 'Long Dash'][index];
+  String get label => const ['Solid', 'Dashed', 'Dotted', 'Dash-Dot', 'Long Dash', 'Marching Ants'][index];
+
+  /// Dashes that keep running toward the line's end (the arrowhead) in the editor and animated GIFs.
+  bool get marches => this == LinePattern.ants;
 
   /// Dash lengths for a line `w` wide. Near-zero dashes with round caps draw as dots.
   List<double>? dashes(double w) => switch (this) {
@@ -42,6 +45,7 @@ enum LinePattern {
         LinePattern.dotted => [0.01, w * 2],
         LinePattern.dashDot => [w * 2.6, w * 1.8, 0.01, w * 1.8],
         LinePattern.longDash => [w * 5, w * 2.5],
+        LinePattern.ants => [w * 2.4, w * 2.2],
       };
 }
 

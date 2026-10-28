@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'dart:ui' as ui;
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import '../model/annotation.dart';
 
@@ -15,16 +16,25 @@ class CanvasPainter extends CustomPainter {
   /// For the build-up GIF: how far each annotation has appeared (id → 0…1; missing = not yet).
   /// Null draws everything as it is.
   final Map<int, double>? progress;
+  /// How far marching-ants lines have run (0…1 of one dash cycle); the editor's timer and the GIF's
+  /// final hold move it. Null draws them still.
+  final ValueListenable<double>? march;
 
   CanvasPainter({required this.state, required this.selectionId, required this.scale, this.hiddenTextId,
-      this.progress});
+      this.progress, this.march});
 
   double _shown(Annotation a) => progress == null ? 1 : progress![a.id] ?? 0;
+
+  /// [march] for the paint in progress (the static draw helpers read it), 0 outside one.
+  static double _marchNow = 0;
 
   @override
   void paint(Canvas canvas, Size size) {
     canvas.save(); // the gesture preview paints after this, so leave the canvas unscaled
+    final outer = _marchNow; // restored after, so a paint inside another paint can't leak its phase
+    _marchNow = march?.value ?? 0;
     _paintScaled(canvas);
+    _marchNow = outer;
     canvas.restore();
   }
 
@@ -339,6 +349,14 @@ class CanvasPainter extends CustomPainter {
     return out;
   }
 
+  /// `path` in `pattern` for a line `w` wide; marching ants are shifted toward the end by the current march.
+  static Path patterned(Path path, LinePattern pattern, double w) {
+    final dashes = pattern.dashes(w);
+    if (dashes == null || !pattern.marches) return dashed(path, dashes);
+    final cycle = dashes.fold(0.0, (a, b) => a + b);
+    return dashed(path, dashes, phase: cycle * (1 - _marchNow));
+  }
+
   /// Runs `render` for the shadow (once, for the whole annotation), the contrast outline (widened by
   /// `outlineWidth`) and the real color, like the Swift app's transparency-layer approach. `bounds` (what
   /// `render` covers) keeps the shadow's blur layer to that area instead of the whole canvas, which is slow.
@@ -368,7 +386,7 @@ class CanvasPainter extends CustomPainter {
 
   /// Boxes, ellipses and pen strokes: pattern, outline and shadow.
   static void strokeStyled(Canvas canvas, Path path, ArrowStyle style, Color color, double w) {
-    final p = dashed(path, style.pattern.dashes(w));
+    final p = patterned(path, style.pattern, w);
     _styled(canvas, style, color, math.max(1.5, w * 0.35), (paint, extra) {
       canvas.drawPath(p, _stroke(paint, w + extra * 2));
     }, bounds: path.getBounds().inflate(w));
@@ -430,11 +448,11 @@ class CanvasPainter extends CustomPainter {
           // A dashed tapered arrow: clip to the wedge and stroke a dashed centerline wide enough to fill it
           canvas.save();
           canvas.clipPath(extra > 0 ? _taperedBody(body, tangents, endWidth + extra * 2) : wedge);
-          canvas.drawPath(dashed(centerline, style.pattern.dashes(taperFull)), _stroke(paint, taperFull * 1.04 + extra * 2));
+          canvas.drawPath(patterned(centerline, style.pattern, taperFull), _stroke(paint, taperFull * 1.04 + extra * 2));
           canvas.restore();
         }
       } else {
-        canvas.drawPath(dashed(centerline, style.pattern.dashes(w)), _stroke(paint, w + extra * 2));
+        canvas.drawPath(patterned(centerline, style.pattern, w), _stroke(paint, w + extra * 2));
       }
       for (final part in [start, end]) {
         final path = part.path;
@@ -697,7 +715,8 @@ class CanvasPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CanvasPainter old) =>
-      old.state != state || old.selectionId != selectionId || old.scale != scale || old.progress != progress;
+      old.state != state || old.selectionId != selectionId || old.scale != scale || old.progress != progress ||
+      old.march != march;
 }
 
 /// The kinds of handle on a selected arrow or line.
