@@ -791,7 +791,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
   Future<void> openFile(String path) async {
     final bytes = await File(path).readAsBytes(); // read fully first: the file may be rewritten later
     if (bytes.isEmpty) return;
-    // Saved by SnapLite with its markup: the original capture and every annotation come back, still editable
+    // Saved by SnapNow with its markup: the original capture and every annotation come back, still editable
     var state = await MarkupFile.read(bytes);
     if (state == null) {
       final frame = await (await ui.instantiateImageCodec(bytes)).getNextFrame();
@@ -813,7 +813,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
       _pan = Offset.zero;
     });
     _clearCopied();
-    await windowManager.setTitle('SnapLite — ${path.split('/').last}');
+    await windowManager.setTitle('SnapNow — ${path.split('/').last}');
   }
 
   Future<void> openImageDialog() async {
@@ -836,7 +836,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     if (s == null) return;
     if (BuildUpGif.marches(s)) {
       try {
-        final dir = Directory('${Directory.systemTemp.path}/SnapLite GIFs')..createSync(recursive: true);
+        final dir = Directory('${Directory.systemTemp.path}/SnapNow GIFs')..createSync(recursive: true);
         final path = '${dir.path}/${_gifName()}.gif';
         await File(path).writeAsBytes(await BuildUpGif.renderMarching(s), flush: true);
         await Native.copyGif(path);
@@ -855,7 +855,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     _showCopied();
   }
 
-  /// Saves back to the capture's file, or a new file in Pictures › SnapLite. The file is the finished
+  /// Saves back to the capture's file, or a new file in Pictures › SnapNow. The file is the finished
   /// image with the markup kept inside it, so reopening it later brings the annotations back.
   Future<void> save() async {
     _endTextEdit();
@@ -870,7 +870,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     await File(path).writeAsBytes(png!, flush: true);
     _path = path;
     setState(() => _savedState = _state);
-    await windowManager.setTitle('SnapLite — ${path.split('/').last}');
+    await windowManager.setTitle('SnapNow — ${path.split('/').last}');
     AppController.instance.capturesVersion.value++;
     await Native.toast('Saved');
   }
@@ -956,7 +956,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     _endTextEdit();
     final png = await _flatPng();
     if (png == null) return;
-    final name = _path?.split('/').last.replaceFirst(RegExp(r'\.[^.]+$'), '') ?? 'SnapLite';
+    final name = _path?.split('/').last.replaceFirst(RegExp(r'\.[^.]+$'), '') ?? 'SnapNow';
     if (!Platform.isMacOS) {
       await FileSaver.instance.saveFile(name: name, bytes: png, fileExtension: 'png', mimeType: MimeType.png);
       return;
@@ -998,7 +998,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     if (s == null) return;
     try {
       await Native.toast('Making GIF…', symbol: 'hourglass');
-      final dir = Directory('${Directory.systemTemp.path}/SnapLite GIFs')..createSync(recursive: true);
+      final dir = Directory('${Directory.systemTemp.path}/SnapNow GIFs')..createSync(recursive: true);
       final path = '${dir.path}/${_gifName()}.gif';
       await File(path).writeAsBytes(await BuildUpGif.render(s), flush: true);
       await Native.copyGif(path);
@@ -1010,7 +1010,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
   }
 
   /// ⌃⌘C: the build-up animation as a WhatsApp sticker. WhatsApp only animates stickers from installed
-  /// packs, so it goes into SnapLite's pack and WhatsApp offers to add (or update) it. No markup = still sticker.
+  /// packs, so it goes into SnapNow's pack and WhatsApp offers to add (or update) it. No markup = still sticker.
   Future<void> copySticker() async {
     _endTextEdit();
     final s = _state;
@@ -1026,7 +1026,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
         at += f.rgba.length;
       }
       await Native.addWhatsAppSticker(all, [for (final f in frames) f.ms]);
-      await Native.toast('Sent to WhatsApp: add it, then pick it from the SnapLite stickers');
+      await Native.toast('Sent to WhatsApp: add it, then pick it from the SnapNow stickers');
     } on PlatformException catch (e) {
       await Native.toast(e.message ?? "Couldn't make the sticker", symbol: 'exclamationmark.triangle.fill');
     } catch (e, st) {
@@ -1061,7 +1061,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     return s;
   }
 
-  String _gifName() => _path?.split('/').last.replaceFirst(RegExp(r'\.[^.]+$'), '') ?? 'SnapLite';
+  String _gifName() => _path?.split('/').last.replaceFirst(RegExp(r'\.[^.]+$'), '') ?? 'SnapNow';
 
   // ---- Canvas operations (flatten / flip / trim / crop / resize / color) ----
 

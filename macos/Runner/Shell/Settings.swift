@@ -40,7 +40,7 @@ final class SettingsWindowController: NSWindowController {
     private init() {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 600),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        window.title = "SnapLite Settings"
+        window.title = "SnapNow Settings"
         window.isReleasedWhenClosed = false
         super.init(window: window)
         stack.orientation = .vertical
@@ -113,7 +113,7 @@ final class SettingsWindowController: NSWindowController {
                                           action: #selector(prefToggled(_:)), key: Prefs.copyImage))
         stack.addArrangedSubview(checkbox("Record the microphone with screen recordings", on: defaults.bool(forKey: Prefs.microphone),
                                           action: #selector(prefToggled(_:)), key: Prefs.microphone))
-        stack.addArrangedSubview(checkbox("Open SnapLite at login", on: SMAppService.mainApp.status == .enabled,
+        stack.addArrangedSubview(checkbox("Open SnapNow at login", on: SMAppService.mainApp.status == .enabled,
                                           action: #selector(loginToggled(_:))))
         let format = NSPopUpButton(frame: .zero, pullsDown: false)
         let names = SaveAs.available.map(\.name)

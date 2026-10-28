@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.mm" "\0"
-            VALUE "FileDescription", "snaplite_flutter" "\0"
+            VALUE "FileDescription", "SnapNow" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "snaplite_flutter" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 com.mm. All rights reserved." "\0"
             VALUE "OriginalFilename", "snaplite_flutter.exe" "\0"
-            VALUE "ProductName", "snaplite_flutter" "\0"
+            VALUE "ProductName", "SnapNow" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

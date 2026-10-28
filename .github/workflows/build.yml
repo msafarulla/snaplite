@@ -41,15 +41,15 @@ jobs:
       # No Apple Developer ID yet: signed ad hoc, so macOS asks before the first launch (see README)
       - name: Sign and zip
         run: |
-          app=build/macos/Build/Products/Release/SnapLite.app
+          app=build/macos/Build/Products/Release/SnapNow.app
           cp LICENSE THIRD_PARTY_NOTICES "$app/Contents/Resources/"
           codesign --force --deep -s - "$app"
           codesign --verify --deep --strict "$app"
-          ditto -c -k --keepParent "$app" SnapLite-macOS.zip
+          ditto -c -k --keepParent "$app" SnapNow-macOS.zip
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: SnapLite-macOS
-          path: SnapLite-macOS.zip
+          name: SnapNow-macOS
+          path: SnapNow-macOS.zip
 
   windows:
     runs-on: windows-2022 # Visual Studio 2022; Flutter 3.32 doesn't recognise the newer image's Visual Studio
@@ -65,15 +65,15 @@ jobs:
         run: |
           $p = Start-Process build\windows\x64\runner\Release\snaplite_flutter.exe -PassThru
           Start-Sleep -Seconds 15
-          if ($p.HasExited) { throw "SnapLite exited right away (code $($p.ExitCode))" }
+          if ($p.HasExited) { throw "SnapNow exited right away (code $($p.ExitCode))" }
           Stop-Process -Id $p.Id
       - name: Zip
         shell: pwsh
-        run: Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath SnapLite-Windows.zip
+        run: Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath SnapNow-Windows.zip
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: SnapLite-Windows
-          path: SnapLite-Windows.zip
+          name: SnapNow-Windows
+          path: SnapNow-Windows.zip
 
   linux:
     runs-on: ubuntu-24.04
@@ -93,13 +93,13 @@ jobs:
           set +e
           timeout 15 xvfb-run -a build/linux/x64/release/bundle/snaplite_flutter
           code=$?
-          [ $code -eq 124 ] || { echo "SnapLite exited right away (code $code)"; exit 1; }
+          [ $code -eq 124 ] || { echo "SnapNow exited right away (code $code)"; exit 1; }
       - name: Archive
-        run: tar -C build/linux/x64/release -czf SnapLite-Linux-x64.tar.gz --transform 's,^bundle,SnapLite,' bundle
+        run: tar -C build/linux/x64/release -czf SnapNow-Linux-x64.tar.gz --transform 's,^bundle,SnapNow,' bundle
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: SnapLite-Linux
-          path: SnapLite-Linux-x64.tar.gz
+          name: SnapNow-Linux
+          path: SnapNow-Linux-x64.tar.gz
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
@@ -115,5 +115,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "SnapLite ${GITHUB_REF_NAME#v}" \
-            --generate-notes SnapLite-macOS.zip SnapLite-Windows.zip SnapLite-Linux-x64.tar.gz
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "SnapNow ${GITHUB_REF_NAME#v}" \
+            --generate-notes SnapNow-macOS.zip SnapNow-Windows.zip SnapNow-Linux-x64.tar.gz

@@ -104,7 +104,7 @@ final class Shell: NSObject, NSMenuDelegate {
         let settings = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
         settings.target = self
         menu.addItem(settings)
-        menu.addItem(NSMenuItem(title: "Quit SnapLite", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        menu.addItem(NSMenuItem(title: "Quit SnapNow", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         return menu
     }
 
@@ -158,7 +158,7 @@ final class Shell: NSObject, NSMenuDelegate {
     // MARK: - Menu bar icon states
 
     private func showIdleIcon() {
-        statusItem.button?.image = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: "SnapLite")
+        statusItem.button?.image = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: "SnapNow")
         statusItem.button?.contentTintColor = NSColor(srgbRed: 0.30, green: 0.45, blue: 1.0, alpha: 1) // the app icon's blue
         statusItem.button?.title = ""
         statusItem.button?.imagePosition = .imageOnly
@@ -181,7 +181,7 @@ final class Shell: NSObject, NSMenuDelegate {
             let ok = HotKeyCenter.shared.register(shortcut) { [weak self] in self?.perform(action) }
             if !ok {
                 Shortcuts.failed.append(action)
-                NSLog("SnapLite: could not register %@ (another app owns it)", shortcut.display)
+                NSLog("SnapNow: could not register %@ (another app owns it)", shortcut.display)
             }
         }
         updateShortcutItems()
@@ -293,7 +293,7 @@ final class Shell: NSObject, NSMenuDelegate {
         if open {
             openEditor(url)
         } else if !copy {
-            Toast.show("Saved to Pictures › SnapLite")   // otherwise there is no sign the capture happened
+            Toast.show("Saved to Pictures › SnapNow")   // otherwise there is no sign the capture happened
         }
     }
 
@@ -364,8 +364,8 @@ final class Shell: NSObject, NSMenuDelegate {
     private func showPermissionAlert() {
         NSApp.activate()
         let alert = NSAlert()
-        alert.messageText = "SnapLite needs Screen Recording permission"
-        alert.informativeText = "Turn on SnapLite in System Settings › Privacy & Security › Screen & System Audio Recording, then quit and reopen SnapLite."
+        alert.messageText = "SnapNow needs Screen Recording permission"
+        alert.informativeText = "Turn on SnapNow in System Settings › Privacy & Security › Screen & System Audio Recording, then quit and reopen SnapNow."
         alert.addButton(withTitle: "Open System Settings")
         alert.addButton(withTitle: "Cancel")
         if alert.runModal() == .alertFirstButtonReturn,

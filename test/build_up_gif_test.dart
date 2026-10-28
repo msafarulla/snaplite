@@ -138,8 +138,8 @@ void main() {
 
     EditorPageState.pickGifPath = (name) async => out.replaceFirst('Shot.gif', name);
     await tester.runAsync(() => key.currentState!.saveAnimatedGif());
-    expect(toasts.last, 'Saved SnapLite.gif');
-    final frames = await tester.runAsync(() async => decode(await File('${dir.path}/SnapLite.gif').readAsBytes()));
+    expect(toasts.last, 'Saved SnapNow.gif');
+    final frames = await tester.runAsync(() async => decode(await File('${dir.path}/SnapNow.gif').readAsBytes()));
     final white = rgba(255, 255, 255);
     expect(frames!.first.$1.every((p) => p == white), isTrue, reason: 'starts on the original (blank) capture');
     expect(frames.first.$2, BuildUpGif.openingHold);
@@ -199,7 +199,7 @@ void main() {
 
     await press(shift: true);
     expect(toasts.last, 'Copied GIF');
-    expect(copiedGifs.single, endsWith('/SnapLite GIFs/SnapLite.gif'));
+    expect(copiedGifs.single, endsWith('/SnapNow GIFs/SnapNow.gif'));
     final frames = await tester.runAsync(() async => decode(await File(copiedGifs.single).readAsBytes()));
     expect(frames!.length, greaterThan(2), reason: 'animated, not a still');
     expect(pngCopies, 0);

@@ -100,7 +100,7 @@ class LibraryPageState extends State<LibraryPage> {
     if (_editing && !await confirmDiscard()) return;
     setState(() { _editing = false; _editingPath = null; });
     _reload();
-    await windowManager.setTitle('SnapLite Library');
+    await windowManager.setTitle('SnapNow Library');
     _gridFocus.requestFocus();
   }
 

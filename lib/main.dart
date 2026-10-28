@@ -50,7 +50,7 @@ class SnapLiteApp extends StatelessWidget {
     return ValueListenableBuilder<String>(
       valueListenable: AppController.instance.appearance,
       builder: (context, choice, _) => MaterialApp(
-        title: 'SnapLite',
+        title: 'SnapNow',
         debugShowCheckedModeBanner: false,
         theme: _light,
         darkTheme: choice == 'tokyoNight' ? _tokyoNight : _dark,

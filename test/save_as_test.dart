@@ -61,7 +61,7 @@ void main() {
     final args = save.arguments as Map;
     final png = args['png'] as Uint8List;
     expect(png.sublist(1, 4), 'PNG'.codeUnits, reason: 'the flattened canvas goes over as PNG bytes');
-    expect(args['name'], 'SnapLite', reason: 'an unsaved canvas gets a default name');
+    expect(args['name'], 'SnapNow', reason: 'an unsaved canvas gets a default name');
     expect(args['density'], isA<double>());
     final toast = calls.where((c) => c.method == 'toast').last.arguments as Map;
     expect(toast['message'], 'Saved Shot.pdf');

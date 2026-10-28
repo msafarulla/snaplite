@@ -6,6 +6,7 @@ class MainFlutterWindow: NSWindow {
   private var native: SnapLiteNative?
 
   override func awakeFromNib() {
+    CaptureFiles.migrateOldFolder()   // before Flutter or the shell touch the captures folder
     let flutterViewController = FlutterViewController()
     let windowFrame = self.frame
     self.contentViewController = flutterViewController

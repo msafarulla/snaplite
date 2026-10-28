@@ -53,7 +53,7 @@ void main() {
     expect(toasts.last, 'Copied sticker');
     final png = stickers.single['png'] as Uint8List;
     expect(png.sublist(0, 8), [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A], reason: 'a PNG');
-    expect(stickers.single['name'], 'SnapLite');
+    expect(stickers.single['name'], 'SnapNow');
     expect(pngCopies, 0, reason: 'not the ⌘C still');
 
     fail = true;

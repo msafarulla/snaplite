@@ -12,7 +12,7 @@ extension Notification.Name {
 enum Capture {
     static let folder: URL = {
         let pictures = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask)[0]
-        let url = pictures.appendingPathComponent("SnapLite", isDirectory: true)
+        let url = pictures.appendingPathComponent("SnapNow", isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }()
@@ -29,7 +29,7 @@ enum Capture {
         url.deletingLastPathComponent().standardizedFileURL.path == folder.standardizedFileURL.path
     }
 
-    /// A free file name, e.g. "SnapLite 2026-10-20 at 14.05.33.png", then "... 2.png".
+    /// A free file name, e.g. "SnapNow 2026-10-20 at 14.05.33.png", then "... 2.png".
     static func uniqueURL(in directory: URL = folder, base: String, ext: String = "png") -> URL {
         var url = directory.appendingPathComponent("\(base).\(ext)")
         var n = 2
@@ -40,7 +40,7 @@ enum Capture {
         return url
     }
 
-    static func newCaptureURL(prefix: String = "SnapLite", ext: String = "png") -> URL {
+    static func newCaptureURL(prefix: String = "SnapNow", ext: String = "png") -> URL {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
         return uniqueURL(base: "\(prefix) \(f.string(from: Date()))", ext: ext)

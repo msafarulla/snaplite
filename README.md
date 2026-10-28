@@ -1,19 +1,21 @@
-# SnapLite
+# SnapNow
+
+*Formerly SnapLite.*
 
 **A free, source-available screenshot, markup and screen-recording app for the Mac menu bar.**
 Capture an area, a window or the whole screen, mark it up with arrows, callouts and numbered steps,
 blur what's private, and copy or save it, without leaving your keyboard.
 
-![The SnapLite editor: tapered arrow, callout with pointer, numbered steps, highlight and box on a dashboard capture](docs/screenshots/editor.png)
+![The SnapNow editor: tapered arrow, callout with pointer, numbered steps, highlight and box on a dashboard capture](docs/screenshots/editor.png)
 
-> **Platforms:** SnapLite is fully functional on **macOS** today. It's built with Flutter, and early previews
+> **Platforms:** SnapNow is fully functional on **macOS** today. It's built with Flutter, and early previews
 > for Windows and Linux are in every release. Once I have Windows and Linux machines to develop and test on,
 > the same features (capture, recording, Copy Text and the rest) will come to those platforms too.
 
-## Why SnapLite
+## Why SnapNow
 
 - **One shortcut, done.** Press your capture shortcut (⌃⇧C by default, any combination you like), drag an area,
-  and the capture opens in the editor, already saved to `~/Pictures/SnapLite`.
+  and the capture opens in the editor, already saved to `~/Pictures/SnapNow`.
 - **Annotations that look good by default.** Arrows taper and curve, callouts point at things, steps number
   themselves, and everything has a soft shadow. Pick a ready-made style with one click.
 - **Every capture in one place.** The Library keeps all your captures and recordings; drag any of them into
@@ -81,18 +83,18 @@ wipe), and the finished picture holds at the end. Good for showing a step-by-ste
 **⇧⌘C** copies that animated GIF straight to the clipboard, ready to paste into Messages, Slack, Mail or WhatsApp.
 
 **⌃⌘C** makes that same build-up an **animated WhatsApp sticker**. WhatsApp only animates stickers from
-installed packs, so SnapLite keeps a "SnapLite" pack (your newest 30 stickers) and hands it to WhatsApp for Mac,
-which asks to add or update it; then pick the sticker from the SnapLite tab in the sticker tray. While the pack
+installed packs, so SnapNow keeps a "SnapNow" pack (your newest 30 stickers) and hands it to WhatsApp for Mac,
+which asks to add or update it; then pick the sticker from the SnapNow tab in the sticker tray. While the pack
 has fewer than 3 stickers (WhatsApp's minimum) it is filled with copies of the newest. The clipboard is used for
 the hand-off and restored a minute later. With no markup, ⌃⌘C copies a still sticker that pastes straight into
 a chat (also in More › Copy as Still Sticker).
 
 **Changed your mind later?** ⌘S keeps your markup inside the saved PNG. Any app shows the finished picture, but
-when you reopen it in SnapLite the original capture and every annotation come back, still editable and in the
+when you reopen it in SnapNow the original capture and every annotation come back, still editable and in the
 order you added them, so you can fix an arrow or make the animated GIF days afterwards. If another app edits the
 picture, it simply opens flat.
 
-![An animated GIF made by SnapLite: curved arrows draw themselves onto a dashboard capture, one after another](docs/screenshots/build-up.gif)
+![An animated GIF made by SnapNow: curved arrows draw themselves onto a dashboard capture, one after another](docs/screenshots/build-up.gif)
 
 **Zoom:** pinch, ⌘-scroll, or ⌘= / ⌘- / ⌘0 (fit) / ⌘1 (100%); scroll or hold Space and drag to pan.
 
@@ -114,33 +116,33 @@ repository's source.
 
 | | File | Status |
 |---|---|---|
-| macOS 14 or later (Apple silicon) | `SnapLite-macOS.zip` | Full app |
-| Windows 10 / 11 (x64) | `SnapLite-Windows.zip` | Early preview: the editor |
-| Linux x64 | `SnapLite-Linux-x64.tar.gz` | Early preview: the editor |
+| macOS 14 or later (Apple silicon) | `SnapNow-macOS.zip` | Full app |
+| Windows 10 / 11 (x64) | `SnapNow-Windows.zip` | Early preview: the editor |
+| Linux x64 | `SnapNow-Linux-x64.tar.gz` | Early preview: the editor |
 
 ### macOS
 
-1. Unzip `SnapLite-macOS.zip` and drag **SnapLite.app** into **Applications**.
-2. Open it. SnapLite isn't notarized by Apple yet (that needs a paid Apple Developer ID), so the first time
+1. Unzip `SnapNow-macOS.zip` and drag **SnapNow.app** into **Applications**.
+2. Open it. SnapNow isn't notarized by Apple yet (that needs a paid Apple Developer ID), so the first time
    macOS says it can't check the app. Click **Done**, then go to **System Settings › Privacy & Security**,
-   scroll down to *"SnapLite" was blocked* and click **Open Anyway**. You only do this once per version.
+   scroll down to *"SnapNow" was blocked* and click **Open Anyway**. You only do this once per version.
 3. On your first capture macOS asks for **Screen Recording** permission (System Settings › Privacy & Security ›
    Screen & System Audio Recording). Downloaded builds are signed ad hoc, so macOS may ask again after an update.
 
 <details>
 <summary>Advanced: skip the Gatekeeper prompt from Terminal</summary>
 
-`xattr -dr com.apple.quarantine /Applications/SnapLite.app` removes the "downloaded from the internet" flag,
+`xattr -dr com.apple.quarantine /Applications/SnapNow.app` removes the "downloaded from the internet" flag,
 so macOS doesn't check the app at all. Only do this for a build you downloaded from this repository's Releases.
 </details>
 
 ### Windows (preview)
 
-1. Unzip `SnapLite-Windows.zip` into a folder of your choice, for example `C:\Program Files\SnapLite`, keeping
+1. Unzip `SnapNow-Windows.zip` into a folder of your choice, for example `C:\Program Files\SnapNow`, keeping
    all the files together.
 2. Run **snaplite_flutter.exe**. The build isn't code-signed yet, so Windows SmartScreen may say
    *"Windows protected your PC"*: click **More info**, then **Run anyway**.
-3. SnapLite starts in the system tray (the ^ area next to the clock): use it to open the Library or an image.
+3. SnapNow starts in the system tray (the ^ area next to the clock): use it to open the Library or an image.
 4. If Windows reports a missing `VCRUNTIME140.dll` or `MSVCP140.dll`, install Microsoft's
    [Visual C++ Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe).
 
@@ -150,11 +152,11 @@ Built on Ubuntu 24.04, so it needs a similarly recent distribution (glibc 2.39 o
 Debian 13, Fedora 40+).
 
 ```sh
-# Ubuntu / Debian: the libraries SnapLite uses (tray icon, global shortcuts, file dialogs)
+# Ubuntu / Debian: the libraries SnapNow uses (tray icon, global shortcuts, file dialogs)
 sudo apt install libgtk-3-0 libayatana-appindicator3-1 libkeybinder-3.0-0 zenity
 
-tar -xzf SnapLite-Linux-x64.tar.gz
-./SnapLite/snaplite_flutter
+tar -xzf SnapNow-Linux-x64.tar.gz
+./SnapNow/snaplite_flutter
 ```
 
 On GNOME the tray icon needs the *AppIndicator and KStatusNotifierItem Support* extension (Ubuntu has it built
@@ -203,7 +205,7 @@ Each run's builds can be downloaded from its page under [Actions](https://github
 **Publishing a release** takes a version tag. Bump `version:` in `pubspec.yaml`, commit, then:
 
 ```sh
-git tag -a v1.13.0 -m "SnapLite 1.13.0"
+git tag -a v1.13.0 -m "SnapNow 1.13.0"
 git push origin v1.13.0
 ```
 
@@ -219,7 +221,7 @@ The same workflow builds all three platforms and, only if every job passes, publ
 
 ## License
 
-Free to use, personally or at work, and to read, change and share for free. Selling SnapLite, or a product
+Free to use, personally or at work, and to read, change and share for free. Selling SnapNow, or a product
 or service built substantially on it, needs the author's written permission. Patent rights are reserved.
 See [LICENSE](LICENSE) (MIT with the Commons Clause). Versions up to v1.12.0 were plain MIT.
 The macOS app includes Google's libwebp (BSD licence); see [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES).

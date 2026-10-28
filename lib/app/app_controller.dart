@@ -25,15 +25,15 @@ class AppController with TrayListener, WindowListener {
   Map<ShortcutAction, Shortcut?> shortcuts = {};
   bool _sized = false;
 
-  /// ~/Pictures/SnapLite, or SNAPLITE_CAPTURES_DIR (demos, tests).
+  /// ~/Pictures/SnapNow, or SNAPLITE_CAPTURES_DIR (demos, tests).
   static String get capturesFolder {
-    final dir = Directory(Platform.environment['SNAPLITE_CAPTURES_DIR'] ?? '${Platform.environment['HOME']}/Pictures/SnapLite');
+    final dir = Directory(Platform.environment['SNAPLITE_CAPTURES_DIR'] ?? '${Platform.environment['HOME']}/Pictures/SnapNow');
     if (!dir.existsSync()) dir.createSync(recursive: true);
     return dir.path;
   }
 
-  /// A free file name, e.g. "SnapLite 2026-10-20 at 14.05.33.png", then "... 2.png".
-  static String newCapturePath({String prefix = 'SnapLite', String ext = 'png'}) {
+  /// A free file name, e.g. "SnapNow 2026-10-20 at 14.05.33.png", then "... 2.png".
+  static String newCapturePath({String prefix = 'SnapNow', String ext = 'png'}) {
     final d = DateTime.now();
     String two(int n) => n.toString().padLeft(2, '0');
     final base = '$prefix ${d.year}-${two(d.month)}-${two(d.day)} at ${two(d.hour)}.${two(d.minute)}.${two(d.second)}';
@@ -113,7 +113,7 @@ class AppController with TrayListener, WindowListener {
   Future<void> _initTrayAndHotkeys() async {
     trayManager.addListener(this);
     await trayManager.setIcon('assets/tray_icon.png');
-    await trayManager.setToolTip('SnapLite');
+    await trayManager.setToolTip('SnapNow');
     shortcuts = await HotkeyStore.load();
     await hotKeyManager.unregisterAll();
     for (final entry in shortcuts.entries) {
@@ -128,7 +128,7 @@ class AppController with TrayListener, WindowListener {
     await trayManager.setContextMenu(Menu(items: [
       for (final a in ShortcutAction.values) MenuItem(key: a.name, label: a.title),
       MenuItem.separator(),
-      MenuItem(key: 'quit', label: 'Quit SnapLite'),
+      MenuItem(key: 'quit', label: 'Quit SnapNow'),
     ]));
   }
 

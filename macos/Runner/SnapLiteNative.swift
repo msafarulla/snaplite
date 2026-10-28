@@ -89,7 +89,7 @@ final class SnapLiteNative {
       result(nil)
     case "copySticker":
       guard let png = (args["png"] as? FlutterStandardTypedData)?.data else { result(nil); return }
-      Sticker.copy(png: png, name: args["name"] as? String ?? "SnapLite", result: result)
+      Sticker.copy(png: png, name: args["name"] as? String ?? "SnapNow", result: result)
     case "addWhatsAppSticker":
       guard let frames = (args["frames"] as? FlutterStandardTypedData)?.data,
             let durations = args["durations"] as? [Int] else { result(nil); return }
@@ -196,7 +196,7 @@ final class SnapLiteNative {
       result(max(1, (dpi / 72).rounded()))
     case "saveAs":
       guard let png = (args["png"] as? FlutterStandardTypedData)?.data else { result(nil); return }
-      SaveAs.run(png: png, name: args["name"] as? String ?? "SnapLite",
+      SaveAs.run(png: png, name: args["name"] as? String ?? "SnapNow",
                  density: args["density"] as? Double ?? 1, result: result)
     case "reveal":
       if let path = args["path"] as? String { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) }
@@ -368,7 +368,7 @@ enum Sticker {
           result(FlutterError(code: "sticker", message: "Couldn't make the sticker", details: nil)); return
         }
         do {
-          let dir = FileManager.default.temporaryDirectory.appendingPathComponent("SnapLite Stickers")
+          let dir = FileManager.default.temporaryDirectory.appendingPathComponent("SnapNow Stickers")
           try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
           let url = dir.appendingPathComponent(name).appendingPathExtension("webp")
           try webp.write(to: url)
@@ -494,7 +494,7 @@ enum WhatsAppPack {
     }
     let lastFrame = frames.suffix(Sticker.side * Sticker.side * 4)
     let pack: [String: Any] = [
-      "identifier": identifier, "name": "SnapLite", "publisher": "SnapLite",
+      "identifier": identifier, "name": "SnapNow", "publisher": "SnapNow",
       "tray_image": tray(from: Data(lastFrame))?.base64EncodedString() ?? "",
       "animated_sticker_pack": true, "ios_app_store_link": "", "android_play_store_link": "",
       "stickers": stickers,
@@ -586,13 +586,28 @@ enum WhatsAppPack {
 enum CaptureFiles {
   static let folder: URL = {
     let pictures = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask)[0]
-    let url = pictures.appendingPathComponent("SnapLite", isDirectory: true)
+    let url = pictures.appendingPathComponent("SnapNow", isDirectory: true)
     try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     return url
   }()
 
-  /// A free file name, e.g. "SnapLite 2026-10-20 at 14.05.33.png", then "... 2.png".
-  static func newCaptureURL(prefix: String = "SnapLite", ext: String = "png") -> URL {
+  /// The app used to be called SnapLite: its ~/Pictures/SnapLite is moved to ~/Pictures/SnapNow once. Runs only
+  /// here, before the Flutter engine starts; if SnapNow already holds files, SnapLite is left as it is.
+  static func migrateOldFolder() {
+    let fm = FileManager.default
+    let pictures = fm.urls(for: .picturesDirectory, in: .userDomainMask)[0]
+    let old = pictures.appendingPathComponent("SnapLite", isDirectory: true)
+    let new = pictures.appendingPathComponent("SnapNow", isDirectory: true)
+    guard fm.fileExists(atPath: old.path) else { return }
+    if let items = try? fm.contentsOfDirectory(atPath: new.path) {
+      guard items.allSatisfy({ $0.hasPrefix(".") }) else { return }
+      try? fm.removeItem(at: new)
+    }
+    do { try fm.moveItem(at: old, to: new) } catch { NSLog("SnapNow: could not move %@: %@", old.path, "\(error)") }
+  }
+
+  /// A free file name, e.g. "SnapNow 2026-10-20 at 14.05.33.png", then "... 2.png".
+  static func newCaptureURL(prefix: String = "SnapNow", ext: String = "png") -> URL {
     let f = DateFormatter()
     f.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
     let base = "\(prefix) \(f.string(from: Date()))"
@@ -766,7 +781,7 @@ final class Recorder {
   /// `rect` is in Cocoa global coordinates. Completion gets the movie, or nil if nothing was written.
   func start(rect: CGRect, microphone: Bool, showClicks: Bool = true, completion: @escaping (URL?) -> Void) -> Bool {
     guard process == nil else { return false }
-    let url = CaptureFiles.newCaptureURL(prefix: "SnapLite Recording", ext: "mov")
+    let url = CaptureFiles.newCaptureURL(prefix: "SnapNow Recording", ext: "mov")
 
     // screencapture -R takes points from the top-left of the main display
     let mainHeight = NSScreen.screens.first?.frame.height ?? 0
