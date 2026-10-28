@@ -123,7 +123,7 @@ void main() {
     await tester.runAsync(() => key.currentState!.saveAnimatedGif());
     expect(toasts.last, 'Add some markup first');
 
-    await tester.tap(find.text('Box'));
+    await tester.tap(find.text('Shape'));
     await tester.pump();
     await tester.dragFrom(area.topLeft + const Offset(200, 150), const Offset(150, 100));
     await tester.pump();

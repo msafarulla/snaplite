@@ -15,7 +15,8 @@ enum ToolbarPrefs {
     static let changed = Notification.Name("SnapLiteToolbarChanged")
     private static let key = "toolbarTools"
     /// Toolbar order, used for every arrangement so toggling a tool never reshuffles the rest.
-    static let order: [Tool] = [.select, .arrow, .text, .callout, .box, .ellipse, .line, .pen, .step, .highlight, .blur, .spotlight, .crop]
+    // Box is the editor's Shape button (rectangle, square, ellipse or circle), so Ellipse isn't listed on its own
+    static let order: [Tool] = [.select, .arrow, .text, .callout, .box, .line, .pen, .step, .highlight, .blur, .spotlight, .crop]
     static let defaults: [Tool] = [.select, .arrow, .text, .callout, .box, .step, .highlight, .blur, .crop]
 
     static var visible: [Tool] {
@@ -337,7 +338,7 @@ enum Tool: Int, CaseIterable {
     case select, arrow, line, box, ellipse, pen, highlight, text, callout, step, blur, spotlight, crop, grabText
 
     var label: String {
-        ["Select", "Arrow", "Line", "Box", "Ellipse", "Pen", "Highlight", "Text", "Callout", "Step", "Blur", "Spotlight", "Crop",
+        ["Select", "Arrow", "Line", "Shape", "Ellipse", "Pen", "Highlight", "Text", "Callout", "Step", "Blur", "Spotlight", "Crop",
          "Copy Text"][rawValue]
     }
 }

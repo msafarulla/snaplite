@@ -4,6 +4,17 @@ import 'dart:ui';
 /// The editor tools. Mirrors the Swift app's `Tool`.
 enum Tool { select, arrow, line, box, ellipse, highlight, pen, text, callout, step, blur, spotlight, crop, grabText }
 
+/// The Shape tool's choices. Rectangles draw with the Box tool and ellipses with the Ellipse tool;
+/// a square or circle keeps its sides equal while you drag.
+enum ShapeKind {
+  rectangle, square, ellipse, circle;
+
+  String get label => const ['Rectangle', 'Square', 'Ellipse', 'Circle'][index];
+  bool get oval => this == ellipse || this == circle;
+  bool get even => this == square || this == circle;
+  Tool get tool => oval ? Tool.ellipse : Tool.box;
+}
+
 enum StrokeSize {
   small,
   medium,

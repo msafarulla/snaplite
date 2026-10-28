@@ -74,11 +74,13 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
   /// Toolbar tools from Settings › Toolbar (Swift raw values), in the Swift app's toolbar order.
   static const _swiftTool = [Tool.select, Tool.arrow, Tool.line, Tool.box, Tool.ellipse, Tool.pen, Tool.highlight,
     Tool.text, Tool.callout, Tool.step, Tool.blur, Tool.spotlight, Tool.crop, Tool.grabText];
-  static const _toolOrder = [Tool.select, Tool.arrow, Tool.text, Tool.callout, Tool.box, Tool.ellipse, Tool.line,
+  // One Shape button covers Box and Ellipse (pick rectangle, square, ellipse or circle in the panel)
+  static const _toolOrder = [Tool.select, Tool.arrow, Tool.text, Tool.callout, Tool.box, Tool.line,
     Tool.pen, Tool.step, Tool.highlight, Tool.blur, Tool.spotlight, Tool.crop];
   static const _defaultTools = {Tool.select, Tool.arrow, Tool.text, Tool.callout, Tool.box, Tool.step, Tool.highlight,
     Tool.blur, Tool.crop};
   Set<Tool> _visibleTools = _defaultTools;
+  ShapeKind _shapeKind = ShapeKind.rectangle;
 
   @override
   void initState() {
@@ -109,6 +111,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     final raw = await Native.toolbarTools();
     if (raw != null) {
       _visibleTools = {for (final i in raw) if (i >= 0 && i < _swiftTool.length) _swiftTool[i]};
+      if (_visibleTools.contains(Tool.ellipse)) _visibleTools.add(Tool.box); // the Shape button
     }
     await QuickStyles.load();
     if (mounted) setState(() {});
@@ -522,7 +525,14 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     } else if (_penPoints != null) {
       if ((_penPoints!.last - _clamp(p)).distance >= 1) setState(() => _penPoints!.add(_clamp(p)));
     } else if (_createStart != null) {
-      setState(() => _createCurrent = _clamp(p));
+      var q = _clamp(p);
+      // Square and circle (or Shift) keep the sides equal
+      final shape = _tool == Tool.box || _tool == Tool.ellipse;
+      if (shape && (_shapeKind.even || HardwareKeyboard.instance.isShiftPressed)) {
+        final d = q - _createStart!, side = math.min(d.dx.abs(), d.dy.abs());
+        q = _createStart! + Offset(side * d.dx.sign, side * d.dy.sign);
+      }
+      setState(() => _createCurrent = q);
     }
   }
 
@@ -1237,7 +1247,44 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
       _copyAllText();
       return;
     }
-    setState(() { _tool = t; _selection = null; });
+    setState(() {
+      // R / O pick a rectangle / an ellipse unless the Shape tool already draws that kind's square / circle
+      if (t == Tool.box && _shapeKind.oval) _shapeKind = ShapeKind.rectangle;
+      if (t == Tool.ellipse && !_shapeKind.oval) _shapeKind = ShapeKind.ellipse;
+      _tool = t; _selection = null;
+    });
+  }
+
+  @override
+  ShapeKind? get shapeKind {
+    final a = selected;
+    if (a != null) {
+      final r = a.rect;
+      final even = r != null && (r.width - r.height).abs() < 0.5;
+      return switch (a.shape) {
+        RectShape() => even ? ShapeKind.square : ShapeKind.rectangle,
+        EllipseShape() => even ? ShapeKind.circle : ShapeKind.ellipse,
+        _ => null,
+      };
+    }
+    return _tool == Tool.box || _tool == Tool.ellipse ? _shapeKind : null;
+  }
+
+  /// Picks what the Shape tool draws; a selected box or ellipse changes to it (a square or circle keeps its centre).
+  @override
+  void pickShapeKind(ShapeKind k) {
+    setState(() => _shapeKind = k);
+    final a = selected;
+    if (a != null && (a.shape is RectShape || a.shape is EllipseShape)) {
+      var r = a.rect!;
+      if (k.even) {
+        final side = math.min(r.width, r.height);
+        r = Rect.fromCenter(center: r.center, width: side, height: side);
+      }
+      _replace(a.copyWith(shape: k.oval ? EllipseShape(r) : RectShape(r)));
+      return;
+    }
+    setState(() => _tool = k.tool);
   }
 
   // ---- PanelHost (the properties panel) ----
@@ -1755,7 +1802,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     Tool.arrow: (Icons.north_east, 'Arrow'),
     Tool.text: (Icons.text_fields, 'Text'),
     Tool.callout: (Icons.chat_bubble_outline, 'Callout'),
-    Tool.box: (Icons.crop_square, 'Box'),
+    Tool.box: (Icons.category_outlined, 'Shape'),
     Tool.ellipse: (Icons.circle_outlined, 'Ellipse'),
     Tool.line: (Icons.horizontal_rule, 'Line'),
     Tool.pen: (Icons.gesture, 'Pen'),
@@ -1769,7 +1816,8 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
   Widget _toolbar() {
     final shown = [for (final t in _toolOrder) if (_visibleTools.contains(t)) t];
     final hidden = [for (final t in _toolOrder) if (!_visibleTools.contains(t)) t];
-    final moreActive = hidden.contains(_tool);
+    final barTool = _tool == Tool.ellipse ? Tool.box : _tool; // both are the Shape button
+    final moreActive = hidden.contains(barTool);
     return Container(
       height: 58,
       padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -1779,11 +1827,12 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
             scrollDirection: Axis.horizontal,
             child: Row(children: [
               for (final t in shown)
-                _ToolButton(icon: _toolInfo[t]!.$1, label: _toolInfo[t]!.$2, active: _tool == t, onTap: () => _setTool(t)),
+                _ToolButton(icon: _toolInfo[t]!.$1, label: _toolInfo[t]!.$2, active: barTool == t,
+                    onTap: () => _setTool(t == Tool.box ? _shapeKind.tool : t)),
               _MoreButton(
                 active: moreActive,
-                label: moreActive ? _toolInfo[_tool]!.$2 : 'More',
-                icon: moreActive ? _toolInfo[_tool]!.$1 : Icons.expand_more,
+                label: moreActive ? _toolInfo[barTool]!.$2 : 'More',
+                icon: moreActive ? _toolInfo[barTool]!.$1 : Icons.expand_more,
                 items: [
                   for (final t in hidden) (t.name, _toolInfo[t]!.$1, _toolInfo[t]!.$2),
                   if (hidden.isNotEmpty) null,
@@ -1799,7 +1848,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
                 ],
                 onSelected: (v) {
                   final t = Tool.values.where((t) => t.name == v).firstOrNull;
-                  if (t != null) return _setTool(t);
+                  if (t != null) return _setTool(t == Tool.box ? _shapeKind.tool : t);
                   switch (v) {
                     case 'open': openImageDialog();
                     case 'overlay': _addOverlay();

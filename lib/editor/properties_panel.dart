@@ -13,6 +13,8 @@ abstract class PanelHost {
   StyleKind? get styleKind;
   ArrowStyle get currentArrowStyle;
   bool get selectionIsCurved;
+  ShapeKind? get shapeKind; // a box or ellipse (selected, or the Shape tool's choice); null otherwise
+  void pickShapeKind(ShapeKind k);
   void pickColor(Color c);
   void openColorPanel();
   void pickSize(StrokeSize s);
@@ -48,7 +50,7 @@ class PropertiesPanel extends StatelessWidget {
     final a = host.selected;
     if (a != null) {
       return switch (a.shape) {
-        ArrowShape() => 'Arrow', LineShape() => 'Line', RectShape() => 'Box', EllipseShape() => 'Ellipse',
+        ArrowShape() => 'Arrow', LineShape() => 'Line', RectShape() => 'Rectangle', EllipseShape() => 'Ellipse',
         PenShape() => 'Pen', HighlightShape() => 'Highlight', TextShape() => 'Text', CalloutShape() => 'Callout',
         StepShape() => 'Step', BlurShape() => 'Blur', SpotlightShape() => 'Spotlight', ImageShape() => 'Image',
       };
@@ -57,7 +59,7 @@ class PropertiesPanel extends StatelessWidget {
   }
 
   static String _toolLabel(Tool t) => const {
-        Tool.select: 'Select', Tool.arrow: 'Arrow', Tool.line: 'Line', Tool.box: 'Box', Tool.ellipse: 'Ellipse',
+        Tool.select: 'Select', Tool.arrow: 'Arrow', Tool.line: 'Line', Tool.box: 'Shape', Tool.ellipse: 'Shape',
         Tool.pen: 'Pen', Tool.highlight: 'Highlight', Tool.text: 'Text', Tool.callout: 'Callout', Tool.step: 'Step',
         Tool.blur: 'Blur', Tool.spotlight: 'Spotlight', Tool.crop: 'Crop', Tool.grabText: 'Copy Text',
       }[t]!;
@@ -161,6 +163,19 @@ class PropertiesPanel extends StatelessWidget {
             ),
           ),
         ]),
+        if (host.shapeKind case final shape?) ...[
+          const SizedBox(height: 4),
+          _row(context, 'Shape', [
+            _Segmented<ShapeKind>(
+              values: ShapeKind.values,
+              selected: shape,
+              label: (k) => k.label,
+              glyph: (k) => CustomPaint(size: const Size(16, 14), painter: _ShapeGlyph(k, Theme.of(context).colorScheme.onSurface)),
+              tooltip: (k) => k.label,
+              onTap: host.pickShapeKind,
+            ),
+          ]),
+        ],
         const SizedBox(height: 4),
         _row(context, 'Size', [
           _Segmented<StrokeSize>(
@@ -393,8 +408,10 @@ class _Segmented<T> extends StatelessWidget {
   final T selected;
   final String Function(T) label;
   final String Function(T) tooltip;
+  final Widget Function(T)? glyph; // shown instead of the label
   final ValueChanged<T> onTap;
-  const _Segmented({required this.values, required this.selected, required this.label, required this.tooltip, required this.onTap});
+  const _Segmented({required this.values, required this.selected, required this.label, required this.tooltip, required this.onTap,
+      this.glyph});
 
   @override
   Widget build(BuildContext context) {
@@ -417,7 +434,8 @@ class _Segmented<T> extends StatelessWidget {
                   borderRadius: BorderRadius.circular(6),
                   boxShadow: v == selected ? const [BoxShadow(color: Color(0x22000000), blurRadius: 2, offset: Offset(0, 1))] : null,
                 ),
-                child: Text(label(v), style: TextStyle(fontSize: 12, fontWeight: v == selected ? FontWeight.w600 : FontWeight.w400)),
+                child: glyph?.call(v) ??
+                    Text(label(v), style: TextStyle(fontSize: 12, fontWeight: v == selected ? FontWeight.w600 : FontWeight.w400)),
               ),
             ),
           ),
@@ -743,6 +761,24 @@ class _AddStyleTile extends StatelessWidget {
       ),
     );
   }
+}
+
+/// A small outline of a rectangle, square, ellipse or circle for the Shape picker.
+class _ShapeGlyph extends CustomPainter {
+  final ShapeKind kind;
+  final Color color;
+  _ShapeGlyph(this.kind, this.color);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = kind.even ? size.height : size.width;
+    final r = Rect.fromCenter(center: size.center(Offset.zero), width: w - 2, height: size.height - (kind.even ? 2 : 4));
+    final p = Paint()..color = color..style = PaintingStyle.stroke..strokeWidth = 1.5;
+    kind.oval ? canvas.drawOval(r, p) : canvas.drawRect(r, p);
+  }
+
+  @override
+  bool shouldRepaint(covariant _ShapeGlyph old) => old.kind != kind || old.color != color;
 }
 
 class _TilePainter extends CustomPainter {

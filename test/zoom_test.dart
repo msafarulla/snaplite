@@ -104,7 +104,7 @@ void main() {
     final editor = await pumpEditor(tester);
     await cmd(tester, LogicalKeyboardKey.digit1);
     await cmd(tester, LogicalKeyboardKey.equal);
-    await tester.tap(find.text('Box'));
+    await tester.tap(find.text('Shape'));
     await tester.pump();
     final area = tester.getRect(find.byKey(const ValueKey('snaplite-canvas')));
     final start = area.topLeft + const Offset(400, 300);

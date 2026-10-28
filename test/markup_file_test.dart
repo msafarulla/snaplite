@@ -147,7 +147,7 @@ void main() {
     });
     await tester.pump();
     final area = tester.getRect(find.byKey(const ValueKey('snaplite-canvas')));
-    await tester.tap(find.text('Box'));
+    await tester.tap(find.text('Shape'));
     await tester.pump();
     await tester.dragFrom(area.center + const Offset(-300, -200), const Offset(150, 100));
     await tester.pump();

@@ -38,4 +38,50 @@ void main() {
     }
     await tester.pumpWidget(const SizedBox());
   });
+
+  testWidgets('one Shape tool: pick rectangle, square, ellipse or circle; a drawn shape can switch', (tester) async {
+    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    for (final c in ['window_manager', 'snaplite/native']) {
+      messenger.setMockMethodCallHandler(MethodChannel(c), (_) async => null);
+    }
+    tester.view.physicalSize = const Size(1600, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final original = FlutterError.onError;
+    FlutterError.onError = (d) {
+      if (!d.exceptionAsString().contains('overflowed')) original?.call(d);
+    };
+    addTearDown(() => FlutterError.onError = original);
+
+    final key = GlobalKey<EditorPageState>();
+    await tester.runAsync(() async {
+      await tester.pumpWidget(MaterialApp(home: EditorPage(key: key)));
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+    });
+    await tester.pump();
+    expect(find.text('Box'), findsNothing);
+    await tester.tap(find.text('Shape'));
+    await tester.pump();
+    final editor = key.currentState!;
+    expect(editor.tool, Tool.box);
+    expect(editor.shapeKind, ShapeKind.rectangle);
+    expect(find.byTooltip('Circle'), findsOneWidget, reason: 'the picker is in the panel');
+
+    await tester.tap(find.byTooltip('Circle'));
+    await tester.pump();
+    expect(editor.tool, Tool.ellipse);
+    final area = tester.getRect(find.byKey(const ValueKey('snaplite-canvas')));
+    await tester.dragFrom(area.topLeft + const Offset(200, 200), const Offset(160, 90));
+    await tester.pump();
+    final drawn = editor.state!.annotations.last;
+    expect(drawn.shape, isA<EllipseShape>());
+    expect(drawn.rect!.width, closeTo(drawn.rect!.height, 0.5), reason: 'a circle, though the drag was wider');
+
+    editor.pickShapeKind(ShapeKind.rectangle); // the drawn circle is selected: it becomes a square box
+    await tester.pump();
+    final changed = editor.state!.annotations.last;
+    expect(changed.shape, isA<RectShape>());
+    expect(changed.rect, drawn.rect);
+    await tester.pumpWidget(const SizedBox());
+  });
 }
