@@ -478,7 +478,7 @@ class CanvasState {
   final Color background;
   /// Pixels per point (2 for Retina captures); new annotations are sized by it.
   final double density;
-  const CanvasState({required this.image, this.annotations = const [], this.background = const Color(0xFFFFFFFF),
+  const CanvasState({required this.image, this.annotations = const [], this.background = const Color(0x00000000),
       this.density = 1});
 
   CanvasState copyWith({Image? image, List<Annotation>? annotations, Color? background}) => CanvasState(

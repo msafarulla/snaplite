@@ -164,18 +164,29 @@ class BuildUpGif {
   static Future<Uint8List> _encodeInBackground(int w, int h, List<GifFrame> frames) =>
       Isolate.run(() => encodeGif(w, h, frames));
 
-  /// One frame as opaque RGBA pixels (transparent canvas areas go on white, since GIF frames here are opaque).
+  /// One frame as RGBA pixels that are either opaque or 0. GIF has no partial transparency, so transparent
+  /// canvas areas (a window's rounded corners) stay transparent and their soft edges are blended onto white.
   static Future<Uint32List> _snapshot(CanvasState s, Map<int, double>? progress, ValueListenable<double> march, double k,
       int w, int h) async {
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
-    canvas.drawRect(Rect.fromLTWH(0, 0, w.toDouble(), h.toDouble()), Paint()..color = Colors.white);
     CanvasPainter(state: s, selectionId: null, scale: k, progress: progress, march: march)
         .paint(canvas, Size(w.toDouble(), h.toDouble()));
     final image = await recorder.endRecording().toImage(w, h);
     final data = await image.toByteData(format: ui.ImageByteFormat.rawStraightRgba);
     image.dispose();
-    return data!.buffer.asUint32List();
+    final px = data!.buffer.asUint32List();
+    for (var i = 0; i < px.length; i++) {
+      final p = px[i], a = p >>> 24; // little-endian RGBA bytes: alpha is the top byte
+      if (a == 255) continue;
+      if (a < 128) {
+        px[i] = 0;
+        continue;
+      }
+      int over(int c) => (c * a + 255 * (255 - a)) ~/ 255;
+      px[i] = 0xFF000000 | (over((p >> 16) & 0xFF) << 16) | (over((p >> 8) & 0xFF) << 8) | over(p & 0xFF);
+    }
+    return px;
   }
 
   static Rect? _changedRect(Uint32List a, Uint32List b, int w, int h) {

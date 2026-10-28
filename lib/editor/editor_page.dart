@@ -1174,13 +1174,18 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
                 style: TextStyle(fontSize: 12, color: Theme.of(ctx).colorScheme.onSurfaceVariant)),
             const SizedBox(height: 14),
             Wrap(spacing: 10, runSpacing: 10, children: [
-              for (final c in const [Colors.white, Color(0xFFEEEEEE), Color(0xFF8E8E93), Colors.black, Color(0xFF1E1E2E), ..._palette])
-                GestureDetector(
-                  onTap: () => Navigator.pop(ctx, c),
-                  child: Container(
-                    width: 30, height: 30,
-                    decoration: BoxDecoration(color: c, shape: BoxShape.circle, border: Border.all(color: Colors.black26),
-                        boxShadow: c.toARGB32() == current ? [BoxShadow(color: Theme.of(ctx).colorScheme.primary, spreadRadius: 2.5)] : null),
+              for (final c in const [Color(0x00000000), Colors.white, Color(0xFFEEEEEE), Color(0xFF8E8E93), Colors.black,
+                  Color(0xFF1E1E2E), ..._palette])
+                Tooltip(
+                  message: c.a == 0 ? 'Transparent (the capture as is)' : '',
+                  child: GestureDetector(
+                    onTap: () => Navigator.pop(ctx, c),
+                    child: Container(
+                      width: 30, height: 30,
+                      decoration: BoxDecoration(color: c, shape: BoxShape.circle, border: Border.all(color: Colors.black26),
+                          boxShadow: c.toARGB32() == current ? [BoxShadow(color: Theme.of(ctx).colorScheme.primary, spreadRadius: 2.5)] : null),
+                      child: c.a == 0 ? ClipOval(child: CustomPaint(painter: _Checker())) : null,
+                    ),
                   ),
                 ),
             ]),
@@ -2021,6 +2026,24 @@ class _PreviewPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _PreviewPainter old) => true;
+}
+
+/// A checkerboard: the swatch for a transparent canvas.
+class _Checker extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawRect(Offset.zero & size, Paint()..color = Colors.white);
+    final grey = Paint()..color = const Color(0xFFCCCCCC);
+    const cell = 6.0;
+    for (var y = 0.0; y < size.height; y += cell) {
+      for (var x = ((y / cell).round().isOdd ? cell : 0.0); x < size.width; x += cell * 2) {
+        canvas.drawRect(Rect.fromLTWH(x, y, cell, cell), grey);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter old) => false;
 }
 
 extension _FirstOrNull<E> on Iterable<E> {
