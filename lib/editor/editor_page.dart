@@ -19,6 +19,7 @@ import '../platform/native.dart';
 import 'canvas_painter.dart';
 import 'properties_panel.dart';
 import 'quick_styles.dart';
+import 'snapping.dart';
 
 class EditorPage extends StatefulWidget {
   const EditorPage({super.key});
@@ -57,6 +58,8 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
   int? _dragId;
   int? _resizeHandle; // null => move
   Offset _lastPoint = Offset.zero;
+  (Rect, Offset)? _imageMove; // a dragged image overlay: its rect and the pointer when the drag began
+  List<Guide> _guides = const []; // where that image lines up with the canvas or the other images
   (int, Offset)? _pendingBend; // a "+" handle grabbed: (stretch, where) — becomes a bend point when dragged
   CanvasState? _gestureSnapshot;
 
@@ -391,6 +394,26 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
 
   void _beginMove(Annotation a, Offset p) {
     _dragId = a.id; _resizeHandle = null; _lastPoint = p; _gestureSnapshot = _state;
+    _imageMove = a.shape is ImageShape && a.rect != null ? (a.rect!, p) : null;
+  }
+
+  /// Where a dragged image goes: snapped to the canvas edges/centre and the other images' (⌘ or Ctrl: freely).
+  Annotation _movedImage(Annotation a, Rect start, Offset grab, Offset p) {
+    final raw = start.shift(p - grab);
+    final keys = HardwareKeyboard.instance;
+    if (keys.isMetaPressed || keys.isControlPressed) {
+      _guides = const [];
+      return a.withRect(raw);
+    }
+    final s = _state!;
+    final targets = [
+      Rect.fromLTWH(0, 0, s.image.width.toDouble(), s.image.height.toDouble()),
+      for (final o in s.annotations)
+        if (o.id != a.id && o.shape is ImageShape && o.rect != null) o.rect!,
+    ];
+    final (shift, guides) = snapRect(raw, targets, 6 / _viewScale);
+    _guides = guides;
+    return a.withRect(raw.shift(shift));
   }
 
   /// `p` is in image coordinates and may lie outside the image (the canvas area around it).
@@ -489,7 +512,11 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
         _replace(a, snapshot: false);
         _resizeHandle = 2 + stretch; // now dragging the new bend point (handles: 2 ends, then the bends)
       }
-      final next = _resizeHandle == null ? _moved(a, p - _lastPoint) : _resized(a, _resizeHandle!, p);
+      final next = switch ((_resizeHandle, _imageMove)) {
+        (final handle?, _) => _resized(a, handle, p),
+        (null, (final start, final grab)?) => _movedImage(a, start, grab, p),
+        _ => _moved(a, p - _lastPoint),
+      };
       _lastPoint = p;
       _replace(next, snapshot: false);
     } else if (_penPoints != null) {
@@ -510,7 +537,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
       // One undo step for the whole move/resize, and none for a plain click
       if (_gestureSnapshot != null && !identical(_gestureSnapshot, _state)) { _undo.add(_gestureSnapshot!); _redo.clear(); }
       // A redraw on release: the thickness slider (hidden while dragging) comes back, even after a plain click
-      setState(() { _dragId = null; _resizeHandle = null; _gestureSnapshot = null; _pendingBend = null; });
+      setState(() { _dragId = null; _resizeHandle = null; _gestureSnapshot = null; _pendingBend = null; _imageMove = null; _guides = const []; });
       if (wasImage) _growAfterEdit();
       return;
     }
@@ -1535,6 +1562,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
                         ants: _copied ? _ants : null,
                         march: _march,
                         canvasResize: _canvasDrag?.$2,
+                        guides: _guides,
                         boundsOfSelection: _textEdit != null || selected == null || selected!.rect != null ? null : _bounds(selected!),
                       ),
                     ),
@@ -1892,10 +1920,11 @@ class _PreviewPainter extends CustomPainter {
   final ValueNotifier<double> march;
   final Rect? canvasResize;
   final Rect? boundsOfSelection;
+  final List<Guide> guides;
 
   _PreviewPainter({required this.base, required this.origin, required this.tool, required this.color, required this.size,
       required this.scale, required this.style, this.createStart, this.createCurrent, this.penPoints,
-      this.canvasChrome = false, this.ants, required this.march, this.canvasResize, this.boundsOfSelection})
+      this.canvasChrome = false, this.ants, required this.march, this.canvasResize, this.boundsOfSelection, this.guides = const []})
       : super(repaint: Listenable.merge([ants, march]));
 
   static const _accent = Color(0xFF2F7CF6);
@@ -1952,6 +1981,13 @@ class _PreviewPainter extends CustomPainter {
       final r = Rect.fromLTRB(boundsOfSelection!.left * scale, boundsOfSelection!.top * scale,
           boundsOfSelection!.right * scale, boundsOfSelection!.bottom * scale).inflate(4);
       _border(canvas, r, 0, accent: true);
+    }
+
+    // Alignment guides for a dragged image, 1 px in the accent colour, a little past both ends
+    final guide = Paint()..color = _accent..strokeWidth = 1;
+    for (final g in guides) {
+      final at = g.at * scale, from = g.from * scale - 6, to = g.to * scale + 6;
+      canvas.drawLine(g.vertical ? Offset(at, from) : Offset(from, at), g.vertical ? Offset(at, to) : Offset(to, at), guide);
     }
 
     final frame = Offset.zero & imageSize;
