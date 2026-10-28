@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -99,6 +100,39 @@ void main() {
     expect(images()[1].left, isNot(closeTo(firstRect.left, 1e-3)));
     await g2.up();
     await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('an added image keeps its actual size, so a same-size capture takes the same space', (tester) async {
+    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    for (final c in ['window_manager', 'snaplite/native']) {
+      messenger.setMockMethodCallHandler(MethodChannel(c), (_) async => null);
+    }
+    tester.view.physicalSize = const Size(1600, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final original = FlutterError.onError;
+    FlutterError.onError = (d) {
+      if (!d.exceptionAsString().contains('overflowed')) original?.call(d);
+    };
+    addTearDown(() => FlutterError.onError = original);
+
+    final key = GlobalKey<EditorPageState>();
+    await tester.runAsync(() async {
+      await tester.pumpWidget(MaterialApp(home: EditorPage(key: key)));
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      final rec = ui.PictureRecorder();
+      Canvas(rec).drawRect(const Rect.fromLTWH(0, 0, 400, 240), Paint()..color = Colors.blue);
+      final png = (await (await rec.endRecording().toImage(400, 240)).toByteData(format: ui.ImageByteFormat.png))!
+          .buffer.asUint8List();
+      final file = File('${Directory.systemTemp.createTempSync().path}/capture.png')..writeAsBytesSync(png);
+      await key.currentState!.openFile(file.path);
+      await key.currentState!.addOverlayBytes(png);
+    });
+    await tester.pump();
+    final s = key.currentState!.state!;
+    final added = s.annotations.singleWhere((a) => a.shape is ImageShape).rect!;
+    expect(added.size, const Size(400, 240), reason: 'not shrunk: the same space as the capture under it');
     await tester.pumpWidget(const SizedBox());
   });
 }

@@ -885,8 +885,9 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     await addOverlayBytes(bytes);
   }
 
-  /// Drops an image into the canvas as a movable, resizable overlay, centred on `globalPosition`
-  /// (a filmstrip drop) or on the canvas; the canvas grows if the overlay spills past it.
+  /// Drops an image into the canvas as a movable, resizable overlay at its actual size (so captures of the
+  /// same size take the same space), centred on `globalPosition` (a filmstrip drop) or on the canvas; the
+  /// canvas grows if the overlay spills past it.
   Future<void> addOverlayFile(String path, {Offset? globalPosition}) async =>
       addOverlayBytes(await File(path).readAsBytes(), globalPosition: globalPosition);
 
@@ -896,7 +897,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     final overlay = (await codec.getNextFrame()).image;
     final cw = _state!.image.width.toDouble(), ch = _state!.image.height.toDouble();
     final nw = overlay.width.toDouble(), nh = overlay.height.toDouble();
-    final fit = math.min(math.min(cw * 0.6 / nw, ch * 0.6 / nh), 1.0);
+    final fit = math.min(1.0, 8000 / math.max(nw, nh)); // only a huge image is scaled down, to keep the canvas workable
     final w = nw * fit, h = nh * fit;
     var center = Offset(cw / 2, ch / 2);
     final box = _canvasKey.currentContext?.findRenderObject() as RenderBox?;
