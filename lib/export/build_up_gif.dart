@@ -56,6 +56,34 @@ class BuildUpGif {
     return _encodeInBackground(w, h, frames);
   }
 
+  /// Whether any annotation uses the Marching Ants pattern.
+  static bool marches(CanvasState s) => s.annotations.any((a) => a.styleKind != null && a.arrowStyle.pattern.marches);
+
+  /// The finished picture with only its Marching Ants moving: one dash cycle that loops seamlessly
+  /// (what ⌘C copies when the markup has them).
+  static Future<Uint8List> renderMarching(CanvasState s) async {
+    final k = outputScale(s);
+    final w = math.max(1, (s.image.width * k).round()), h = math.max(1, (s.image.height * k).round());
+    final march = ValueNotifier<double>(0);
+    final n = (marchCycle * fps).round(), delay = 1000 ~/ fps;
+    final frames = <GifFrame>[];
+    Uint32List? previous;
+    for (var i = 0; i < n; i++) {
+      march.value = i / n;
+      final pixels = await _snapshot(s, null, march, k, w, h); // null = everything shown
+      final changed = previous == null ? null : _changedRect(previous, pixels, w, h);
+      if (previous == null) {
+        frames.add(GifFrame(0, 0, w, h, pixels.buffer.asUint8List(), delay));
+      } else if (changed == null) {
+        frames.last.delayMs += delay;
+      } else {
+        frames.add(_crop(previous, pixels, w, changed, delay));
+      }
+      previous = pixels;
+    }
+    return _encodeInBackground(w, h, frames);
+  }
+
   /// The animation itself: the original, then each annotation appearing in the order it was added.
   /// [frame] shows the current [progress] for a while; [hold] lengthens the frame on screen.
   /// Marching Ants lines run during the final hold (still while they appear, so those frames stay small).
@@ -73,7 +101,7 @@ class BuildUpGif {
       hold(pauseAfterEach);
     }
     final rest = finalHold - pauseAfterEach;
-    if (!s.annotations.any((a) => a.styleKind != null && a.arrowStyle.pattern.marches)) return hold(rest);
+    if (!marches(s)) return hold(rest);
     final n = rest.inMilliseconds * fps ~/ 1000, step = Duration(microseconds: rest.inMicroseconds ~/ n);
     for (var i = 1; i <= n; i++) {
       march.value = (i / fps / marchCycle) % 1;
@@ -137,7 +165,7 @@ class BuildUpGif {
       Isolate.run(() => encodeGif(w, h, frames));
 
   /// One frame as opaque RGBA pixels (transparent canvas areas go on white, since GIF frames here are opaque).
-  static Future<Uint32List> _snapshot(CanvasState s, Map<int, double> progress, ValueListenable<double> march, double k,
+  static Future<Uint32List> _snapshot(CanvasState s, Map<int, double>? progress, ValueListenable<double> march, double k,
       int w, int h) async {
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);

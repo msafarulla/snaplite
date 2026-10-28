@@ -1,7 +1,10 @@
+import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:snaplite_flutter/editor/canvas_painter.dart';
+import 'package:snaplite_flutter/editor/editor_page.dart';
 import 'package:snaplite_flutter/export/build_up_gif.dart';
 import 'package:snaplite_flutter/model/annotation.dart';
 
@@ -61,5 +64,70 @@ void main() {
       final dashed = await frameCount(LinePattern.dashed), ants = await frameCount(LinePattern.ants);
       expect(ants, greaterThan(dashed + 10), reason: 'extra frames while the ants run');
     });
+  });
+
+  testWidgets('the looping GIF is the finished picture with only the ants moving', (tester) async {
+    await tester.runAsync(() async {
+      final codec = await ui.instantiateImageCodec(await BuildUpGif.renderMarching(await canvas(LinePattern.ants)));
+      expect(codec.frameCount, greaterThan(4), reason: 'one dash cycle of frames');
+      final first = await codec.getNextFrame();
+      final px = (await first.image.toByteData(format: ui.ImageByteFormat.rawStraightRgba))!.buffer.asUint32List();
+      expect(px.any((p) => p != rgba(255, 255, 255)), isTrue, reason: 'the arrow is there from the first frame');
+    });
+  });
+
+  testWidgets('⌘C copies a looping GIF when an arrow marches, a still PNG otherwise', (tester) async {
+    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final copiedGifs = <String>[];
+    var pngCopies = 0;
+    messenger.setMockMethodCallHandler(const MethodChannel('window_manager'), (_) async => null);
+    messenger.setMockMethodCallHandler(const MethodChannel('pasteboard'), (call) async {
+      if (call.method == 'writeImage') pngCopies++;
+      return null;
+    });
+    messenger.setMockMethodCallHandler(const MethodChannel('snaplite/native'), (call) async {
+      if (call.method == 'copyGif') copiedGifs.add((call.arguments as Map)['path'] as String);
+      return null;
+    });
+    tester.view.physicalSize = const Size(1600, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final original = FlutterError.onError;
+    FlutterError.onError = (d) {
+      if (!d.exceptionAsString().contains('overflowed')) original?.call(d);
+    };
+    addTearDown(() => FlutterError.onError = original);
+
+    final key = GlobalKey<EditorPageState>();
+    await tester.runAsync(() async {
+      await tester.pumpWidget(MaterialApp(home: EditorPage(key: key)));
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+    });
+    await tester.pump();
+    final area = tester.getRect(find.byKey(const ValueKey('snaplite-canvas')));
+    Future<void> copy() => tester.runAsync(() async {
+          await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+          await tester.sendKeyEvent(LogicalKeyboardKey.keyC);
+          await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+          await Future<void>.delayed(const Duration(seconds: 3)); // the GIF renders off the test clock
+        });
+
+    await tester.tap(find.text('Arrow'));
+    await tester.pump();
+    await tester.dragFrom(area.topLeft + const Offset(300, 300), const Offset(250, -150));
+    await tester.pump();
+    await copy();
+    expect((pngCopies, copiedGifs.length), (1, 0), reason: 'a plain arrow copies the still image');
+
+    key.currentState!.setArrowStyle(const ArrowStyle(pattern: LinePattern.ants)); // the Arrow tool's style
+    await tester.pump();
+    await tester.dragFrom(area.topLeft + const Offset(300, 500), const Offset(250, -100));
+    await tester.pump();
+    await copy();
+    expect((pngCopies, copiedGifs.length), (1, 1), reason: 'marching ants copy as a GIF instead');
+    final frames = await tester.runAsync(() async => (await ui.instantiateImageCodec(await File(copiedGifs.single).readAsBytes())).frameCount);
+    expect(frames, greaterThan(4));
+
+    await tester.pumpWidget(const SizedBox()); // closes the editor, which stops the ants' timer
   });
 }
