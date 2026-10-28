@@ -117,14 +117,21 @@ class PropertiesPanel extends StatelessWidget {
           host.styleKind != null ? host.currentArrowStyle : ArrowStyle.arrow);
       bool isCurrent(QuickStyle q) =>
           q.color == current.color && q.size == current.size && (host.styleKind == null || q.style == current.style);
+      // Shape tiles show the shape in use (selected, or the tool's): a box, an ellipse or a pen stroke
+      final sample = switch (host.selected?.shape) {
+        EllipseShape() => Tool.ellipse,
+        PenShape() => Tool.pen,
+        RectShape() => Tool.box,
+        _ => host.tool,
+      };
       kids.add(Wrap(spacing: 4, runSpacing: 4, children: [
         for (final q in QuickStyles.presets(kind, current: host.styleKind != null ? host.currentArrowStyle : null, size: host.size))
-          _QuickTile(q: q, kind: kind, current: isCurrent(q), onTap: () => host.applyQuickStyle(q)),
+          _QuickTile(q: q, kind: kind, sample: sample, current: isCurrent(q), onTap: () => host.applyQuickStyle(q)),
       ]));
       final mine = QuickStyles.saved(kind);
       kids.add(_heading(context, 'My Styles', small: true));
       kids.add(Wrap(spacing: 4, runSpacing: 4, children: [
-        for (final q in mine) _QuickTile(q: q, kind: kind, current: isCurrent(q), onTap: () => host.applyQuickStyle(q)),
+        for (final q in mine) _QuickTile(q: q, kind: kind, sample: sample, current: isCurrent(q), onTap: () => host.applyQuickStyle(q)),
         _AddStyleTile(onTap: host.saveCurrentStyle, saved: mine.any(isCurrent)),
       ]));
       kids.add(_separator(context));
@@ -678,9 +685,10 @@ class _PillButton extends StatelessWidget {
 class _QuickTile extends StatefulWidget {
   final QuickStyle q;
   final QuickKind kind;
+  final Tool sample; // which shape a shape tile draws
   final bool current; // matches the style in use: outlined
   final VoidCallback onTap;
-  const _QuickTile({required this.q, required this.kind, required this.onTap, this.current = false});
+  const _QuickTile({required this.q, required this.kind, required this.onTap, this.sample = Tool.box, this.current = false});
   @override
   State<_QuickTile> createState() => _QuickTileState();
 }
@@ -702,7 +710,7 @@ class _QuickTileState extends State<_QuickTile> {
             borderRadius: BorderRadius.circular(6),
             border: widget.current ? Border.all(color: Theme.of(context).colorScheme.primary, width: 1.5) : null,
           ),
-          child: CustomPaint(painter: _TilePainter(widget.q, widget.kind)),
+          child: CustomPaint(painter: _TilePainter(widget.q, widget.kind, widget.sample)),
         ),
       ),
     );
@@ -740,7 +748,8 @@ class _AddStyleTile extends StatelessWidget {
 class _TilePainter extends CustomPainter {
   final QuickStyle q;
   final QuickKind kind;
-  _TilePainter(this.q, this.kind);
+  final Tool sample;
+  _TilePainter(this.q, this.kind, this.sample);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -753,7 +762,12 @@ class _TilePainter extends CustomPainter {
       case QuickKind.arrow || QuickKind.line:
         CanvasPainter.drawAnnotation(canvas, ann(const ArrowShape(Offset(w - 14, 12), Offset(16, h - 12))));
       case QuickKind.shape:
-        CanvasPainter.drawAnnotation(canvas, ann(const RectShape(Rect.fromLTWH(14, 12, w - 28, h - 24))));
+        const r = Rect.fromLTWH(14, 12, w - 28, h - 24);
+        CanvasPainter.drawAnnotation(canvas, ann(switch (sample) {
+          Tool.ellipse => const EllipseShape(r),
+          Tool.pen => PenShape([for (var i = 0; i <= 24; i++) Offset(14 + i * (w - 28) / 24, h / 2 - math.sin(i / 24 * 2 * math.pi) * 14)]),
+          _ => const RectShape(r),
+        }));
       case QuickKind.highlight:
         final bar = Paint()..color = const Color(0xFF8C8C8C);
         for (final (i, bw) in [w - 28, w - 40, w - 34].indexed) {
@@ -770,5 +784,5 @@ class _TilePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _TilePainter old) => old.q != q || old.kind != kind;
+  bool shouldRepaint(covariant _TilePainter old) => old.q != q || old.kind != kind || old.sample != sample;
 }
