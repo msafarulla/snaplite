@@ -159,7 +159,7 @@ final class Shell: NSObject, NSMenuDelegate {
 
     private func showIdleIcon() {
         statusItem.button?.image = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: "SnapLite")
-        statusItem.button?.contentTintColor = nil
+        statusItem.button?.contentTintColor = NSColor(srgbRed: 0.30, green: 0.45, blue: 1.0, alpha: 1) // the app icon's blue
         statusItem.button?.title = ""
         statusItem.button?.imagePosition = .imageOnly
     }
