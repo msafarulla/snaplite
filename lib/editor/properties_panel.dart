@@ -195,11 +195,18 @@ class PropertiesPanel extends StatelessWidget {
           _heading(context, 'Line', small: true),
           _row(context, 'Pattern', [
             _Dropdown<LinePattern>(
-              value: style.pattern,
+              value: style.pattern.still,
               items: [for (final p in LinePattern.menu) (p, p.label, StylePreview(ArrowStyle(end: ArrowHead.none, pattern: p), line: isLine))],
-              onChanged: (p) => host.setArrowStyle(style.copyWith(pattern: p)),
+              onChanged: (p) => host.setArrowStyle(style.copyWith(pattern: p.marching(style.pattern.marches))),
             ),
           ]),
+          if (style.pattern.canMarch)
+            Tooltip(
+              message: 'The dashes keep running toward the end (in the editor and in GIFs)',
+              waitDuration: const Duration(milliseconds: 700),
+              child: _check(context, 'Marching', style.pattern.marches,
+                  (v) => host.setArrowStyle(style.copyWith(pattern: style.pattern.marching(v)))),
+            ),
           // One row each, so the whole panel fits without scrolling
           Wrap(spacing: 14, runSpacing: 4, children: [
             if (isLine) _check(context, 'Tapered', style.tapered, (v) => host.setArrowStyle(style.copyWith(tapered: v)), indent: false),

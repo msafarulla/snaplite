@@ -2253,7 +2253,7 @@ class _ThicknessCard extends StatelessWidget {
 class _ColorBar extends StatelessWidget {
   static const _dot = 20.0, _gap = 6.0, _pad = 8.0, _menu = 62.0, _row2 = 28.0;
   static double widthFor(bool lines) => math.max(_pad * 2 + (PropertiesPanel.colors.length + 1) * (_dot + _gap) - _gap,
-      lines ? _pad * 2 + 3 * _menu + 3 * 4 + 28 : 0);
+      lines ? _pad * 2 + 3 * _menu + 2 * 4 + 28 + 28 : 0);
   static double heightFor(bool lines) => _dot + _pad * 2 + (lines ? _row2 + 6 : 0);
   final Color selected;
   final ValueChanged<Color> onPick;
@@ -2334,11 +2334,25 @@ class _ColorBar extends StatelessWidget {
               ],
               _MiniMenu<LinePattern>(
                 tooltip: 'Pattern',
-                value: st.pattern,
+                value: st.pattern.still,
                 items: [for (final p in LinePattern.menu) (p, p.label, StylePreview(ArrowStyle(end: ArrowHead.none, pattern: p)))],
-                onChanged: (p) => onStyle(st.copyWith(pattern: p)),
+                onChanged: (p) => onStyle(st.copyWith(pattern: p.marching(st.pattern.marches))),
               ),
-              const SizedBox(width: 4),
+              SizedBox(
+                width: 28,
+                child: st.pattern.canMarch
+                    ? Tooltip(
+                        message: 'Marching: the dashes keep running toward the end',
+                        child: Checkbox(
+                          key: const ValueKey('snaplite-bar-marching'),
+                          value: st.pattern.marches,
+                          visualDensity: VisualDensity.compact,
+                          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          onChanged: (v) => onStyle(st.copyWith(pattern: st.pattern.marching(v ?? false))),
+                        ),
+                      )
+                    : null,
+              ),
               SizedBox(
                 width: 28,
                 child: IconButton(

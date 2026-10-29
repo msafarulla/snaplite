@@ -48,8 +48,18 @@ enum LinePattern {
   String get label => const ['Solid', 'Dashed', 'Dotted', 'Dash-Dot', 'Long Dash', 'Marching Ants', 'Marching Dots',
         'Marching Dash-Dot', 'Marching Long Dash'][index];
 
-  /// Menu order: each pattern followed by its marching version (a solid line has nothing to march).
-  static const menu = [solid, dashed, ants, dotted, antsDotted, dashDot, antsDashDot, longDash, antsLongDash];
+  /// The Pattern menu: the still patterns; the Marching checkbox picks the moving twin (solid has none).
+  static const menu = [solid, dashed, dotted, dashDot, longDash];
+  static const _twins = {dashed: ants, dotted: antsDotted, dashDot: antsDashDot, longDash: antsLongDash};
+
+  /// The still pattern this one is (itself unless it marches).
+  LinePattern get still => _twins.entries.firstWhere((e) => e.value == this, orElse: () => MapEntry(this, this)).key;
+
+  /// Whether the Marching checkbox applies (anything with gaps).
+  bool get canMarch => _twins.containsKey(still);
+
+  /// This pattern, marching or still.
+  LinePattern marching(bool on) => on ? (_twins[still] ?? this) : still;
 
   /// Dashes that keep running toward the line's end (the arrowhead) in the editor and animated GIFs.
   bool get marches => index >= LinePattern.ants.index;

@@ -495,6 +495,14 @@ void main() {
     await tester.tap(find.text('${HeadSize.large.label} head').last);
     await tester.pumpAndSettle();
     expect(editor.selected!.arrowStyle.headSize, HeadSize.large);
+
+    // Marching is a checkbox beside the pattern, once the line has gaps
+    expect(find.byKey(const ValueKey('snaplite-bar-marching')), findsNothing, reason: 'solid line');
+    editor.setArrowStyle(editor.selected!.arrowStyle.copyWith(pattern: LinePattern.dotted));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('snaplite-bar-marching')));
+    await tester.pump();
+    expect(editor.selected!.arrowStyle.pattern, LinePattern.antsDotted);
   });
 
   testWidgets('after bending an arrow, the thickness slider is back (and on clicking it again)', (tester) async {

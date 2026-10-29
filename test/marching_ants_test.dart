@@ -43,13 +43,18 @@ void main() {
     expect(ArrowStyle.fromJson(style.toJson())!.pattern, LinePattern.ants);
   });
 
-  test('every pattern but solid has a marching version, listed right after it', () {
-    expect(LinePattern.menu.toSet(), LinePattern.values.toSet());
-    for (var i = 1; i < LinePattern.menu.length; i += 2) {
-      expect(LinePattern.menu[i].marches, isFalse);
-      expect(LinePattern.menu[i + 1].marches, isTrue);
-      expect(LinePattern.menu[i + 1].dashes(4), LinePattern.menu[i].dashes(4));
+  test('the menu has the still patterns; Marching switches each (but solid) to its moving twin', () {
+    expect(LinePattern.menu.any((p) => p.marches), isFalse);
+    expect(LinePattern.solid.canMarch, isFalse);
+    for (final p in LinePattern.menu.skip(1)) {
+      final m = p.marching(true);
+      expect(m.marches, isTrue);
+      expect(m.dashes(4), p.dashes(4));
+      expect(m.still, p);
+      expect(m.canMarch, isTrue);
+      expect(m.marching(false), p);
     }
+    expect(LinePattern.solid.marching(true), LinePattern.solid);
   });
 
   test('dotted and dash-dot have marching versions too', () {
