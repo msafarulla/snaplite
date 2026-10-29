@@ -85,7 +85,7 @@ class LibraryPageState extends State<LibraryPage> {
 
   // ---- Modes ----
 
-  /// Enters (or switches within) edit mode, after offering to save unsaved edits.
+  /// Enters (or switches within) edit mode, saving any unsaved edits first.
   Future<void> openForEditing(String path) async {
     if (_editing && _editingPath == path) return _editor?.focus();
     if (!await confirmDiscard()) return;
@@ -104,33 +104,15 @@ class LibraryPageState extends State<LibraryPage> {
     _gridFocus.requestFocus();
   }
 
-  /// Save / Cancel / Don't Save when the editor has unsaved edits. True: go ahead.
+  /// Saves the editor's unsaved edits without asking (switching images, back to the grid, closing). Always
+  /// safe: the saved PNG keeps the original capture and every annotation, so anything can be undone later.
+  /// Returns true (go ahead), as the old Save / Don't Save / Cancel question did.
   Future<bool> confirmDiscard() async {
     final editor = _editor;
-    if (!_editing || editor == null || !editor.hasUnsavedChanges) return true;
-    final name = (editor.path ?? 'Untitled').split('/').last;
-    final choice = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Save changes to “$name”?'),
-        content: const Text("Your annotations will be lost if you don't save them."),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, 'discard'), child: const Text("Don't Save")),
-          TextButton(onPressed: () => Navigator.pop(ctx, 'cancel'), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, 'save'), child: const Text('Save')),
-        ],
-      ),
-    );
-    switch (choice) {
-      case 'save':
-        await editor.save();
-        return true;
-      case 'discard':
-        return true;
-      default:
-        return false;
-    }
+    if (_editing && editor != null && editor.hasUnsavedChanges) await editor.save();
+    return true;
   }
+
 
   void _scrollFilmstripTo(String path) {
     final i = _files.indexWhere((f) => f.path == path);
@@ -158,11 +140,10 @@ class LibraryPageState extends State<LibraryPage> {
     _reload();
   }
 
-  /// Deleting the capture being edited moves on to the next one (after offering to save), or back to the grid.
+  /// Deleting the capture being edited moves on to the next one, or back to the grid.
   Future<void> _trashFromFilmstrip(String path) async {
     if (path != _editingPath) return _trash([path]);
-    if (!await confirmDiscard()) return;
-    final i = _files.indexWhere((f) => f.path == path);
+    final i = _files.indexWhere((f) => f.path == path); // its edits aren't saved: it's being deleted
     final rest = [for (final f in _files) if (f.path != path && _isImage(f.path)) f.path];
     await _trash([path]);
     if (rest.isEmpty) {
@@ -170,7 +151,7 @@ class LibraryPageState extends State<LibraryPage> {
       return;
     }
     final next = rest[i.clamp(0, rest.length - 1)];
-    setState(() => _editingPath = null); // already confirmed; skip a second prompt
+    setState(() => _editingPath = null); // straight to the next one, without saving the deleted one
     await _editor?.openFile(next);
     setState(() => _editingPath = next);
     _editor?.focus();

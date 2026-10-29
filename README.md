@@ -112,8 +112,9 @@ everything into the image. Drag the image's square handles to add space around i
 **⌘C** copies the finished image (marching ants show it worked), **⌘S** saves it back to the capture.
 **⇧⌘S** (Save As…) exports PNG, JPEG, HEIC, TIFF, PDF, GIF or BMP, keeping Retina resolution.
 **Share** (toolbar) opens the macOS share menu (Messages, Mail, AirDrop, Notes, WhatsApp…) with the finished
-image. **Pin** (⌥⌘T) keeps the editor above other windows. **Esc** saves your changes and closes the window
-(⌘W asks first). If the editor opens over a full-screen app, clicking that app tucks the editor away without
+image. **Pin** (⌥⌘T) keeps the editor above other windows. Changes are saved automatically: **Esc** or ⌘W
+closes the window, and clicking another capture in the filmstrip switches to it, without a Save / Don't Save
+question (the markup stays editable, so nothing is lost). If the editor opens over a full-screen app, clicking that app tucks the editor away without
 closing it; ⌘-Tab (or the Dock icon) brings it back exactly as you left it.
 
 **Changed your mind later?** ⌘S keeps your markup inside the saved PNG. Any app shows the finished picture, but
