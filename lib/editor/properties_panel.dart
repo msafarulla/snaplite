@@ -13,6 +13,8 @@ abstract class PanelHost {
   StyleKind? get styleKind;
   ArrowStyle get currentArrowStyle;
   bool get selectionIsCurved;
+  bool get followDrag; // new arrows and lines follow the dragged path
+  void setFollowDrag(bool on);
   ShapeKind? get shapeKind; // a box or ellipse (selected, or the Shape tool's choice); null otherwise
   void pickShapeKind(ShapeKind k);
   void pickColor(Color c);
@@ -176,6 +178,12 @@ class PropertiesPanel extends StatelessWidget {
         if (isLine) {
           kids.addAll([
             _separator(context),
+            if (host.selected == null)
+              Tooltip(
+                message: 'New arrows and lines follow the path you drag, as a smooth curve',
+                waitDuration: const Duration(milliseconds: 700),
+                child: _check(context, 'Curve: follow my drag', host.followDrag, host.setFollowDrag, indent: false),
+              ),
             _heading(context, 'Arrowheads', small: true),
             _row(context, 'Start', [_headMenu(style, start: true)]),
             _row(context, 'End', [

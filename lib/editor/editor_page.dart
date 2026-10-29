@@ -55,6 +55,10 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
   Offset? _createStart;
   Offset? _createCurrent;
   List<Offset>? _penPoints;
+  List<Offset>? _trail; // the path dragged so far, when the Arrow / Line tool follows the drag
+
+  /// Curve: new arrows and lines follow the path you drag instead of going straight (remembered).
+  bool _followDrag = false;
   int? _dragId;
   int? _resizeHandle; // null => move
   Offset _lastPoint = Offset.zero;
@@ -87,6 +91,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     super.initState();
     _makeBlankCanvas(1200, 800);
     _loadPrefs();
+    Native.getBool('followDrag').then((on) { if (mounted && on != null) setState(() => _followDrag = on); });
     Native.getBool('pinOnTop').then((on) { if (on == true && !_pinTouched) _setPinned(true, save: false); });
     _textController.addListener(_textChanged);
     Native.onColorPicked = (rgb) => pickColor(Color(0xFF000000 | rgb), refresh: false);
@@ -511,6 +516,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     if (_tool == Tool.step) { _addStep(_clamp(p)); return; }
     if (_tool == Tool.pen) { _penPoints = [_clamp(p)]; return; }
     _createStart = _clamp(p); _createCurrent = _createStart;
+    _trail = _followDrag && (_tool == Tool.arrow || _tool == Tool.line) ? [_createStart!] : null;
   }
 
   void _move(Offset p) {
@@ -545,6 +551,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
         final d = q - _createStart!, side = math.min(d.dx.abs(), d.dy.abs());
         q = _createStart! + Offset(side * d.dx.sign, side * d.dy.sign);
       }
+      if (_trail != null && (_trail!.last - q).distance * _viewScale >= 2) _trail!.add(q);
       setState(() => _createCurrent = q);
     }
   }
@@ -575,6 +582,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
       final a = _createStart!, b = _createCurrent ?? p;
       _createStart = null; _createCurrent = null;
       _finishCreate(a, b);
+      _trail = null;
     }
   }
 
@@ -612,9 +620,9 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     Shape? shape;
     switch (_tool) {
       case Tool.arrow:
-        if ((b - a).distance > 4) shape = ArrowShape(a, b);
+        if ((b - a).distance > 4) shape = ArrowShape(a, b, points: _bends(b));
       case Tool.line:
-        if ((b - a).distance > 4) shape = LineShape(a, b);
+        if ((b - a).distance > 4) shape = LineShape(a, b, points: _bends(b));
       case Tool.box:
         if (big) shape = RectShape(rect);
       case Tool.ellipse:
@@ -1652,6 +1660,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
                         tool: _tool, color: _color, size: _size, scale: scale,
                         style: kind == null ? ArrowStyle.arrow : _styleFor(kind),
                         createStart: _createStart, createCurrent: _createCurrent, penPoints: _penPoints,
+                        bends: _createCurrent == null ? const [] : _bends(_createCurrent!),
                         canvasChrome: _showsCanvasHandles || _canvasDrag != null,
                         ants: _copied ? _ants : null,
                         march: _march,
@@ -1705,6 +1714,44 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
         ]),
       ),
     );
+  }
+
+  /// The bend points that make a new arrow or line follow the dragged path (none when not following):
+  /// the trail thinned (Ramer-Douglas-Peucker, a few screen points of tolerance) to the corners that
+  /// matter, at most 16, so the smooth curve through them traces the drag and each stays draggable.
+  List<Offset> _bends(Offset end) {
+    final t = _trail;
+    if (t == null || t.length < 3) return const [];
+    final pts = [...t, end];
+    var eps = 3 / _viewScale;
+    List<Offset> kept;
+    do {
+      kept = _simplify(pts, eps);
+      eps *= 1.5;
+    } while (kept.length > 18);
+    return kept.sublist(1, kept.length - 1);
+  }
+
+  static List<Offset> _simplify(List<Offset> pts, double eps) {
+    if (pts.length < 3) return pts;
+    final a = pts.first, b = pts.last, ab = b - a, len = ab.distance;
+    var far = 0, best = 0.0;
+    for (var i = 1; i < pts.length - 1; i++) {
+      final ap = pts[i] - a;
+      final d = len == 0 ? ap.distance : (ab.dx * ap.dy - ab.dy * ap.dx).abs() / len;
+      if (d > best) { best = d; far = i; }
+    }
+    if (best <= eps) return [a, b];
+    return [..._simplify(pts.sublist(0, far + 1), eps)..removeLast(), ..._simplify(pts.sublist(far), eps)];
+  }
+
+  @override
+  bool get followDrag => _followDrag;
+
+  @override
+  void setFollowDrag(bool on) {
+    setState(() => _followDrag = on);
+    Native.setBool('followDrag', on);
   }
 
   /// Clicking an arrow, line, box, ellipse or pen stroke shows the thickness slider beside it.
@@ -2043,6 +2090,7 @@ class _PreviewPainter extends CustomPainter {
   final double scale;
   final Offset? createStart, createCurrent;
   final List<Offset>? penPoints;
+  final List<Offset> bends; // a new arrow's or line's bend points while it follows the drag
   final bool canvasChrome;
   final ValueNotifier<double>? ants;
   final ValueNotifier<double> march;
@@ -2051,7 +2099,7 @@ class _PreviewPainter extends CustomPainter {
   final List<Guide> guides;
 
   _PreviewPainter({required this.base, required this.origin, required this.tool, required this.color, required this.size,
-      required this.scale, required this.style, this.createStart, this.createCurrent, this.penPoints,
+      required this.scale, required this.style, this.createStart, this.createCurrent, this.penPoints, this.bends = const [],
       this.canvasChrome = false, this.ants, required this.march, this.canvasResize, this.boundsOfSelection, this.guides = const []})
       : super(repaint: Listenable.merge([ants, march]));
 
@@ -2077,9 +2125,9 @@ class _PreviewPainter extends CustomPainter {
       final a = createStart!, b = createCurrent!, r = Rect.fromPoints(a, b);
       switch (tool) {
         case Tool.arrow:
-          CanvasPainter.drawAnnotation(canvas, ann(ArrowShape(a, b)));
+          CanvasPainter.drawAnnotation(canvas, ann(ArrowShape(a, b, points: bends)));
         case Tool.line:
-          CanvasPainter.drawAnnotation(canvas, ann(LineShape(a, b)));
+          CanvasPainter.drawAnnotation(canvas, ann(LineShape(a, b, points: bends)));
         case Tool.box:
           CanvasPainter.drawAnnotation(canvas, ann(RectShape(r)));
         case Tool.ellipse:

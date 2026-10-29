@@ -505,6 +505,53 @@ void main() {
     expect(editor.selected!.arrowStyle.pattern, LinePattern.antsDotted);
   });
 
+  testWidgets('Curve: a new arrow follows the dragged path; off, it goes straight', (tester) async {
+    final editor = await pumpEditor(tester);
+    await tester.tap(find.text('Arrow').first);
+    await tester.pump();
+    editor.setFollowDrag(true);
+    await tester.pump();
+    expect(find.text('Curve: follow my drag'), findsOneWidget, reason: 'the option is in the panel');
+
+    // An arc: right and up, then right and down
+    final start = onCanvas(tester, 0.2, 0.6);
+    final g = await tester.startGesture(start);
+    for (var i = 1; i <= 30; i++) {
+      final t = i / 30;
+      await g.moveTo(start + Offset(400 * t, -200 * (1 - (2 * t - 1) * (2 * t - 1))));
+      await tester.pump();
+    }
+    await g.up();
+    await tester.pump();
+    final arc = editor.selected!;
+    final pts = arc.curve!;
+    expect(pts.length, greaterThan(2), reason: 'bends follow the drag');
+    expect(pts.length, lessThanOrEqualTo(18), reason: 'thinned to the corners that matter');
+    final top = pts.map((p) => p.dy).reduce((a, b) => a < b ? a : b);
+    expect(pts.first.dy - top, greaterThan(100), reason: 'the curve rises with the drag (image coords)');
+
+    // A straight drag stays straight even with Curve on
+    await tester.tap(find.text('Arrow').first);
+    await tester.pump();
+    final s2 = onCanvas(tester, 0.2, 0.8);
+    final g2 = await tester.startGesture(s2);
+    for (var i = 1; i <= 10; i++) { await g2.moveTo(s2 + Offset(30.0 * i, 0)); await tester.pump(); }
+    await g2.up();
+    await tester.pump();
+    expect(editor.selected!.curve!.length, 2);
+
+    // Off: an arc drag makes a straight arrow
+    editor.setFollowDrag(false);
+    await tester.tap(find.text('Arrow').first);
+    await tester.pump();
+    final s3 = onCanvas(tester, 0.7, 0.4); // clear of the arrows above
+    final g3 = await tester.startGesture(s3);
+    for (var i = 1; i <= 10; i++) { await g3.moveTo(s3 + Offset(20.0 * i, -60.0 * (i < 5 ? i : 10 - i))); await tester.pump(); }
+    await g3.up();
+    await tester.pump();
+    expect(editor.selected!.curve!.length, 2);
+  });
+
   testWidgets('after bending an arrow, the thickness slider is back (and on clicking it again)', (tester) async {
     final editor = await pumpEditor(tester);
     final area = tester.getRect(find.byKey(const ValueKey('snaplite-canvas')));
