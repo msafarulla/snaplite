@@ -10,6 +10,22 @@ void main() {
     expect(ArrowStyle.fromJson(style.toJson())!.border, isTrue);
     expect(ArrowStyle.fromJson(const ArrowStyle().toJson())!.border, isFalse);
     expect(style.withWidth(12).border, isTrue, reason: 'the thickness slider keeps it');
+    final white = style.withBorderColor(const Color(0xFFFFFFFF));
+    expect(ArrowStyle.fromJson(white.toJson())!.borderColor, const Color(0xFFFFFFFF), reason: 'a chosen edge colour is kept');
+    expect(white.withWidth(8).copyWith(tapered: true).borderColor, const Color(0xFFFFFFFF));
+    expect(white.withBorderColor(null).borderColor, isNull, reason: 'back to automatic');
+  });
+
+  test('a chosen edge colour is drawn', () async {
+    const red = Color(0xFFFF3B30);
+    final r = ui.PictureRecorder();
+    final canvas = Canvas(r)..drawColor(Colors.black, BlendMode.src);
+    CanvasPainter.strokeStyled(canvas, Path()..moveTo(20, 40)..lineTo(180, 40),
+        const ArrowStyle(end: ArrowHead.none, border: true, shadow: false, borderColor: Color(0xFFFFFFFF)), red, 16);
+    final img = await r.endRecording().toImage(200, 80);
+    final px = (await img.toByteData(format: ui.ImageByteFormat.rawStraightRgba))!.buffer.asUint8List();
+    final i = ((40 - 9) * 200 + 100) * 4;
+    expect(px[i] > 200 && px[i + 1] > 200 && px[i + 2] > 200, isTrue, reason: 'white edge just outside the line');
   });
 
   test('the edge is a darker shade of the same colour', () {

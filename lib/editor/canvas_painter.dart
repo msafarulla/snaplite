@@ -379,10 +379,10 @@ class CanvasPainter extends CustomPainter {
       void Function(Color paint, double extra) render, {Rect? bounds, void Function(Color paint)? shine}) {
     // Border: a thin, nearly black edge in the line's own hue plus a shine down the middle (route-map tubes);
     // the contrast outline, when on too, goes outside it
-    final edge = style.border ? math.max(1.0, outlineWidth * 0.45) : 0.0;
+    final edge = style.border ? math.max(1.5, outlineWidth * 0.7) : 0.0;   // bold enough to read at any size
     void paintLayers({bool shadowPass = false}) {
       if (style.outline) render(contrast(color), outlineWidth + edge);
-      if (style.border) render(darker(color), edge);
+      if (style.border) render(style.borderColor ?? darker(color), edge);
       render(color, 0);
       if (style.border && !shadowPass) shine?.call(CanvasPainter.shine(color));
     }

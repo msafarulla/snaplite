@@ -103,6 +103,7 @@ class ArrowStyle {
   final bool outline;
   final bool shadow;
   final bool border; // a thin edge in a darker shade of the line's own colour
+  final Color? borderColor; // the edge's colour; null = automatic (a dark shade of the line's colour)
   final double? width; // exact line thickness in points (the thickness slider); null = from S / M / L
   const ArrowStyle({
     this.start = ArrowHead.none,
@@ -113,6 +114,7 @@ class ArrowStyle {
     this.outline = false,
     this.shadow = true,
     this.border = false,
+    this.borderColor,
     this.width,
   });
 
@@ -131,16 +133,21 @@ class ArrowStyle {
         outline: outline ?? this.outline,
         shadow: shadow ?? this.shadow,
         border: border ?? this.border,
+        borderColor: borderColor,
         width: width,
       );
 
   ArrowStyle withWidth(double? value) => ArrowStyle(start: start, end: end, headSize: headSize, pattern: pattern,
-      tapered: tapered, outline: outline, shadow: shadow, border: border, width: value);
+      tapered: tapered, outline: outline, shadow: shadow, border: border, borderColor: borderColor, width: value);
+
+  ArrowStyle withBorderColor(Color? value) => ArrowStyle(start: start, end: end, headSize: headSize, pattern: pattern,
+      tapered: tapered, outline: outline, shadow: shadow, border: border, borderColor: value, width: width);
 
   Map<String, Object> toJson() => {
         'start': start.index, 'end': end.index, 'headSize': headSize.index, 'pattern': pattern.index,
         'tapered': tapered, 'outline': outline, 'shadow': shadow,
         if (border) 'border': true,
+        if (borderColor != null) 'borderColor': borderColor!.toARGB32(),
         if (width != null) 'width': width!,
       };
 
@@ -156,6 +163,7 @@ class ArrowStyle {
       outline: json['outline'] == true,
       shadow: json['shadow'] != false,
       border: json['border'] == true,
+      borderColor: json['borderColor'] is int ? Color(json['borderColor'] as int) : null,
       width: (json['width'] as num?)?.toDouble(),
     );
   }
@@ -164,10 +172,10 @@ class ArrowStyle {
   bool operator ==(Object other) =>
       other is ArrowStyle && other.start == start && other.end == end && other.headSize == headSize &&
       other.pattern == pattern && other.tapered == tapered && other.outline == outline && other.shadow == shadow &&
-      other.border == border && other.width == width;
+      other.border == border && other.borderColor == borderColor && other.width == width;
 
   @override
-  int get hashCode => Object.hash(start, end, headSize, pattern, tapered, outline, shadow, border, width);
+  int get hashCode => Object.hash(start, end, headSize, pattern, tapered, outline, shadow, border, borderColor, width);
 }
 
 /// How Text and Callout annotations set their words: font, exact size, bold/italic/underline, alignment,

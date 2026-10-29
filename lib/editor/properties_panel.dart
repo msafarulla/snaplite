@@ -213,11 +213,21 @@ class PropertiesPanel extends StatelessWidget {
             _check(context, 'Outline', style.outline, (v) => host.setArrowStyle(style.copyWith(outline: v)), indent: false),
             _check(context, 'Shadow', style.shadow, (v) => host.setArrowStyle(style.copyWith(shadow: v)), indent: false),
             Tooltip(
-              message: 'A darker edge in the line\'s own colour',
+              message: 'A dark edge around the line, with a shine down the middle',
               waitDuration: const Duration(milliseconds: 700),
               child: _check(context, 'Border', style.border, (v) => host.setArrowStyle(style.copyWith(border: v)), indent: false),
             ),
           ]),
+          if (style.border)
+            _row(context, 'Border', [
+              Expanded(
+                child: Wrap(spacing: 5, runSpacing: 5, children: [
+                  for (final (name, c) in [('Automatic (a dark shade of the line)', null), ...colors])
+                    _ColorDot(name: name, color: c, selected: style.borderColor?.toARGB32() == c?.toARGB32(),
+                        onTap: () => host.setArrowStyle(style.withBorderColor(c))),
+                ]),
+              ),
+            ]),
           Wrap(spacing: 6, runSpacing: 4, children: [
             if (isLine)
               Tooltip(
