@@ -1667,6 +1667,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
             if (_textEdit != null) _textEditor(origin, scale),
             if (_formatBarTarget case final a?) _formatBar(a, origin, scale, Size(constraints.maxWidth, constraints.maxHeight)),
             if (_thicknessTarget case final a?) _thicknessSlider(a, origin, scale, Size(constraints.maxWidth, constraints.maxHeight)),
+            if (_colorBarTarget case final a?) _colorBar(a, origin, scale, Size(constraints.maxWidth, constraints.maxHeight)),
             Positioned(right: 12, bottom: 12, child: _zoomPill()),
           ]),
         ),
@@ -1765,6 +1766,31 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     final style = a.arrowStyle.withWidth(points);
     _replace(a.copyWith(arrowStyle: style), snapshot: false);
     setState(() => _styleDefaults[k] = style);
+  }
+
+  /// Clicking anything that has a colour shows the colour bar above it (as in Snagit).
+  Annotation? get _colorBarTarget {
+    final a = selected;
+    if (a == null || _dragId != null || _textEdit != null) return null;
+    return a.shape is BlurShape || a.shape is SpotlightShape || a.shape is ImageShape ? null : a;
+  }
+
+  /// The colour bar sits centred above the annotation (below if there's no room), inside the canvas area.
+  Widget _colorBar(Annotation a, Offset origin, double scale, Size area) {
+    final b = _boxOf(a);
+    final box = Rect.fromLTRB(origin.dx + b.left * scale, origin.dy + b.top * scale, origin.dx + b.right * scale,
+        origin.dy + b.bottom * scale);
+    final w = _ColorBar.width;
+    const h = _ColorBar.height, gap = 12.0;
+    var top = box.top - gap - h;
+    if (top < 8) top = box.bottom + gap;
+    top = top.clamp(8.0, math.max(8.0, area.height - h - 8));
+    final left = (box.center.dx - w / 2).clamp(8.0, math.max(8.0, area.width - w - 8)).toDouble();
+    return Positioned(
+      left: left,
+      top: top,
+      child: _ColorBar(selected: a.color, onPick: pickColor, onMore: openColorPanel),
+    );
   }
 
   /// The format bar appears only while some of the typed text is highlighted (like a mini toolbar).
@@ -2212,6 +2238,69 @@ class _ThicknessCard extends StatelessWidget {
                   onChangeEnd: (_) => onEnd(),
                 ),
               ),
+            ),
+          ),
+        ),
+      ]),
+    );
+  }
+}
+
+/// The colour bar shown above a selected annotation: the panel's colours plus "any colour", one click each.
+class _ColorBar extends StatelessWidget {
+  static const _dot = 20.0, _gap = 6.0, _pad = 8.0;
+  static final width = _pad * 2 + (PropertiesPanel.colors.length + 1) * (_dot + _gap) - _gap;
+  static const height = _dot + _pad * 2;
+  final Color selected;
+  final ValueChanged<Color> onPick;
+  final VoidCallback onMore;
+  const _ColorBar({required this.selected, required this.onPick, required this.onMore});
+
+  @override
+  Widget build(BuildContext context) {
+    final s = Theme.of(context).colorScheme;
+    return Container(
+      key: const ValueKey('snaplite-colorbar'),
+      height: height,
+      padding: const EdgeInsets.symmetric(horizontal: _pad),
+      decoration: BoxDecoration(
+        color: s.surface.withValues(alpha: 0.95),
+        borderRadius: BorderRadius.circular(height / 2),
+        border: Border.all(color: s.outlineVariant.withValues(alpha: 0.7), width: 0.8),
+        boxShadow: const [BoxShadow(color: Color(0x22000000), blurRadius: 6, offset: Offset(0, 1))],
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        for (final (name, c) in PropertiesPanel.colors) ...[
+          Tooltip(
+            message: name,
+            waitDuration: const Duration(milliseconds: 600),
+            child: InkResponse(
+              onTap: () => onPick(c),
+              radius: 13,
+              child: Container(
+                width: _dot, height: _dot,
+                decoration: BoxDecoration(
+                  color: c,
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                      color: c.toARGB32() == selected.toARGB32() ? s.primary : s.outlineVariant,
+                      width: c.toARGB32() == selected.toARGB32() ? 2.5 : 0.8),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: _gap),
+        ],
+        Tooltip(
+          message: 'Any color',
+          waitDuration: const Duration(milliseconds: 600),
+          child: InkResponse(
+            onTap: onMore,
+            radius: 13,
+            child: Container(
+              width: _dot, height: _dot,
+              decoration: const BoxDecoration(shape: BoxShape.circle, gradient: SweepGradient(colors: [
+                Colors.red, Colors.yellow, Colors.green, Colors.cyan, Colors.blue, Colors.purple, Colors.red])),
             ),
           ),
         ),

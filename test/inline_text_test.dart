@@ -463,6 +463,23 @@ void main() {
     expect(editor.selected!.size, StrokeSize.large);
   });
 
+  testWidgets('clicking an arrow shows a colour bar above it; a bubble recolours the arrow', (tester) async {
+    final editor = await pumpEditor(tester);
+    await tester.tap(find.text('Arrow'));
+    await tester.pump();
+    await tester.dragFrom(onCanvas(tester, 0.3, 0.6), const Offset(150, -100));
+    await tester.pump();
+    final bar = find.byKey(const ValueKey('snaplite-colorbar'));
+    expect(bar, findsOneWidget, reason: 'shown for the selected arrow');
+    expect(tester.getBottomLeft(bar).dy, lessThan(tester.getCenter(find.byKey(const ValueKey('snaplite-thickness'))).dy),
+        reason: 'above the arrow');
+
+    await tester.tap(find.descendant(of: bar, matching: find.byTooltip('Blue')));
+    await tester.pump();
+    expect(editor.selected!.color.toARGB32(), const Color(0xFF007AFF).toARGB32());
+    expect(bar, findsOneWidget, reason: 'stays up for another pick');
+  });
+
   testWidgets('after bending an arrow, the thickness slider is back (and on clicking it again)', (tester) async {
     final editor = await pumpEditor(tester);
     final area = tester.getRect(find.byKey(const ValueKey('snaplite-canvas')));
