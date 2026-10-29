@@ -1717,18 +1717,35 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
   }
 
   /// The bend points that make a new arrow or line follow the dragged path (none when not following):
-  /// the trail thinned (Ramer-Douglas-Peucker, a few screen points of tolerance) to the corners that
-  /// matter, at most 16, so the smooth curve through them traces the drag and each stays draggable.
+  /// the trail smoothed (each point averaged with its neighbours, which irons out hand jitter), then thinned
+  /// (Ramer-Douglas-Peucker, ~10 screen points of tolerance) to at most 6 bends, so the curve through them is
+  /// smooth and each one stays draggable.
   List<Offset> _bends(Offset end) {
     final t = _trail;
     if (t == null || t.length < 3) return const [];
-    final pts = [...t, end];
-    var eps = 3 / _viewScale;
+    final raw = [...t, end];
+    // Moving average over ±5 points; the ends stay where they are
+    const k = 5;
+    final pts = [
+      for (var i = 0; i < raw.length; i++)
+        if (i == 0 || i == raw.length - 1)
+          raw[i]
+        else
+          () {
+            final from = math.max(0, i - k), to = math.min(raw.length - 1, i + k);
+            var sum = Offset.zero;
+            for (var j = from; j <= to; j++) {
+              sum += raw[j];
+            }
+            return sum / (to - from + 1).toDouble();
+          }(),
+    ];
+    var eps = 10 / _viewScale;
     List<Offset> kept;
     do {
       kept = _simplify(pts, eps);
-      eps *= 1.5;
-    } while (kept.length > 18);
+      eps *= 1.4;
+    } while (kept.length > 8);
     return kept.sublist(1, kept.length - 1);
   }
 

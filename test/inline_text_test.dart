@@ -526,7 +526,7 @@ void main() {
     final arc = editor.selected!;
     final pts = arc.curve!;
     expect(pts.length, greaterThan(2), reason: 'bends follow the drag');
-    expect(pts.length, lessThanOrEqualTo(18), reason: 'thinned to the corners that matter');
+    expect(pts.length, lessThanOrEqualTo(8), reason: 'thinned to a few smooth bends');
     final top = pts.map((p) => p.dy).reduce((a, b) => a < b ? a : b);
     expect(pts.first.dy - top, greaterThan(100), reason: 'the curve rises with the drag (image coords)');
 
