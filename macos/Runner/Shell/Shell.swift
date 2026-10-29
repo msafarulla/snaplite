@@ -9,7 +9,7 @@ enum Renderer {}
 /// The menu bar app, ported from the Swift SnapLite's AppDelegate: status item, capture panel (left click),
 /// full menu (right click), global hotkeys, capture / countdown / copy text / recording flows.
 /// The editor and Library are Flutter; this talks to them through `SnapLiteNative.shared`.
-final class Shell: NSObject, NSMenuDelegate {
+final class Shell: NSObject, NSMenuDelegate, NSPopoverDelegate {
     static let shared = Shell()
 
     private let defaults = UserDefaults.standard
@@ -48,6 +48,7 @@ final class Shell: NSObject, NSMenuDelegate {
         // Left click: the capture panel. Right click (or ⌃-click): the full menu, also behind the panel's gear.
         popover.contentViewController = panel
         popover.behavior = .transient
+        popover.delegate = self
         panel.gearMenu = menu
         panel.onCapture = { [weak self] config in self?.captureFromPanel(config) }
         panel.onOpenLibrary = { [weak self] in
@@ -241,7 +242,20 @@ final class Shell: NSObject, NSMenuDelegate {
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             NSApp.activate()
             popover.contentViewController?.view.window?.makeKey()   // so the first click on a chip counts
+            // .transient only notices outside clicks while SnapNow is active, and activate() is just a request
+            // (often ignored for a menu bar app), so a click in any other app closes the panel too. Global
+            // mouse monitors need no Accessibility permission; clicks on our own icon aren't reported here.
+            outsideClicks = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
+                self?.popover.performClose(nil)
+            }
         }
+    }
+
+    private var outsideClicks: Any?
+
+    func popoverDidClose(_ notification: Notification) {
+        if let m = outsideClicks { NSEvent.removeMonitor(m) }
+        outsideClicks = nil
     }
 
     /// The panel's Capture button: optional countdown, then the tab's capture with its settings.
