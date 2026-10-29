@@ -24,6 +24,8 @@ final class RegionCapture {
     private var previousApp: NSRunningApplication?   // where Esc returns to
 
     var mouse = NSEvent.mouseLocation
+    var antsPhase: CGFloat = 0
+    private var antsTimer: Timer?
     var dragStart: CGPoint?
     var dragScreen: NSScreen?
 
@@ -168,6 +170,14 @@ final class RegionCapture {
         }
         NSCursor.crosshair.push()
         redraw()
+        // Marching ants on the last area's outline: only that thin frame is redrawn, while the overlay is up
+        if offered != nil {
+            antsTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 20, repeats: true) { [weak self] _ in
+                guard let self, let last = self.offered, !self.isDragging else { return }
+                self.antsPhase = (self.antsPhase + 1) .truncatingRemainder(dividingBy: 10)
+                for v in self.views { v.redrawOutline(last) }
+            }
+        }
     }
 
     func screenUnderMouse() -> NSScreen? {
@@ -257,6 +267,8 @@ final class RegionCapture {
 
     private func finish(_ result: URL?) {
         guard completion != nil else { return }
+        antsTimer?.invalidate()
+        antsTimer = nil
         overlays.forEach { $0.orderOut(nil) }
         overlays = []
         views = []
@@ -296,6 +308,18 @@ private final class RegionView: NSView {
     override var isOpaque: Bool { false }
 
     private var origin: CGPoint { frozen.screen.frame.origin }
+
+    /// Just the outline's frame (global rect), for the marching ants.
+    func redrawOutline(_ r: CGRect) {
+        let l = local(r)
+        guard l.insetBy(dx: -4, dy: -4).intersects(bounds) else { return }
+        for edge in [CGRect(x: l.minX - 4, y: l.minY - 4, width: l.width + 8, height: 8),
+                     CGRect(x: l.minX - 4, y: l.maxY - 4, width: l.width + 8, height: 8),
+                     CGRect(x: l.minX - 4, y: l.minY - 4, width: 8, height: l.height + 8),
+                     CGRect(x: l.maxX - 4, y: l.minY - 4, width: 8, height: l.height + 8)] {
+            setNeedsDisplay(edge)
+        }
+    }
     private func local(_ r: CGRect) -> CGRect { r.offsetBy(dx: -origin.x, dy: -origin.y) }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -321,6 +345,9 @@ private final class RegionView: NSView {
         if !capture.isDragging, let last = capture.offered.map(local), last.intersects(bounds) {
             let border = NSBezierPath(rect: last.insetBy(dx: -1, dy: -1))
             border.lineWidth = 2
+            NSColor.black.withAlphaComponent(0.55).setStroke()   // the gaps, so the ants read on any background
+            border.stroke()
+            border.setLineDash([6, 4], count: 2, phase: -capture.antsPhase)
             Self.orange.setStroke()
             border.stroke()
         }
