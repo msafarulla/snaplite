@@ -333,11 +333,17 @@ class CanvasPainter extends CustomPainter {
     return hsv.value > 0.75 && hsv.saturation < 0.6 ? Colors.black : Colors.white;
   }
 
-  /// The Border effect's edge: the same hue, darker (a lighter grey for black, so it still shows).
+  /// The Border effect's edge: the same hue, nearly black, as on route maps (dark grey for black lines).
   static Color darker(Color c) {
     final hsl = HSLColor.fromColor(c);
-    if (hsl.lightness < 0.15) return const Color(0xFF555555);
-    return hsl.withLightness((hsl.lightness * 0.55).clamp(0.0, 1.0)).toColor();
+    if (hsl.lightness < 0.15) return const Color(0xFF4A4A4A);
+    return hsl.withLightness((hsl.lightness * 0.3).clamp(0.0, 1.0)).toColor();
+  }
+
+  /// The Border effect's shine down the middle of the line, which makes it read as a glossy tube.
+  static Color shine(Color c) {
+    final hsl = HSLColor.fromColor(c);
+    return hsl.withLightness((hsl.lightness + (1 - hsl.lightness) * 0.45).clamp(0.0, 1.0)).toColor().withValues(alpha: 0.6);
   }
 
   /// `path` cut into dashes (near-zero dashes become dots under round caps).
@@ -368,22 +374,24 @@ class CanvasPainter extends CustomPainter {
   /// Runs `render` for the shadow (once, for the whole annotation), the contrast outline (widened by
   /// `outlineWidth`) and the real color, like the Swift app's transparency-layer approach. `bounds` (what
   /// `render` covers) keeps the shadow's blur layer to that area instead of the whole canvas, which is slow.
+  /// `shine` draws the Border effect's highlight (a narrow line down the middle of the body, not the heads).
   static void _styled(Canvas canvas, ArrowStyle style, Color color, double outlineWidth,
-      void Function(Color paint, double extra) render, {Rect? bounds}) {
-    // Border: a darker edge of the line's own colour (about a fifth of the outline's reach, as in route maps);
+      void Function(Color paint, double extra) render, {Rect? bounds, void Function(Color paint)? shine}) {
+    // Border: a thin, nearly black edge in the line's own hue plus a shine down the middle (route-map tubes);
     // the contrast outline, when on too, goes outside it
-    final edge = style.border ? math.max(1.0, outlineWidth * 0.55) : 0.0;
-    void paintLayers() {
+    final edge = style.border ? math.max(1.0, outlineWidth * 0.45) : 0.0;
+    void paintLayers({bool shadowPass = false}) {
       if (style.outline) render(contrast(color), outlineWidth + edge);
       if (style.border) render(darker(color), edge);
       render(color, 0);
+      if (style.border && !shadowPass) shine?.call(CanvasPainter.shine(color));
     }
     if (style.shadow) {
       canvas.saveLayer(bounds?.inflate(outlineWidth * 2 + 8), Paint()
         ..colorFilter = ColorFilter.mode(Colors.black.withValues(alpha: 0.4), BlendMode.srcIn)
         ..imageFilter = ui.ImageFilter.blur(sigmaX: 1.6, sigmaY: 1.6));
       canvas.translate(1.5, 1.5);
-      paintLayers();
+      paintLayers(shadowPass: true);
       canvas.restore();
     }
     paintLayers();
@@ -403,7 +411,7 @@ class CanvasPainter extends CustomPainter {
     final p = patterned(path, style.pattern, w);
     _styled(canvas, style, color, math.max(1.5, w * 0.35), (paint, extra) {
       canvas.drawPath(p, _stroke(paint, w + extra * 2));
-    }, bounds: path.getBounds().inflate(w));
+    }, bounds: path.getBounds().inflate(w), shine: (paint) => canvas.drawPath(p, _stroke(paint, w * 0.3)));
   }
 
   /// How wide a tapered body gets where it meets each kind of head (`hw`: the head's line width).
@@ -478,7 +486,8 @@ class CanvasPainter extends CustomPainter {
           canvas.drawPath(path, _stroke(paint, part.lineWidth + extra * 2));
         }
       }
-    }, bounds: [
+    }, shine: wedge != null ? null : (paint) => canvas.drawPath(patterned(centerline, style.pattern, w), _stroke(paint, w * 0.3)),
+        bounds: [
       wedge?.getBounds() ?? centerline.getBounds(),
       for (final part in [start, end]) ?part.path?.getBounds(),
     ].reduce((a, b) => a.expandToInclude(b)).inflate(math.max(w, taperFull)));

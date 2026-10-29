@@ -28,7 +28,8 @@ void main() {
     final img = await r.endRecording().toImage(200, 80);
     final px = (await img.toByteData(format: ui.ImageByteFormat.rawStraightRgba))!.buffer.asUint8List();
     Color at(int x, int y) { final i = (y * 200 + x) * 4; return Color.fromARGB(px[i + 3], px[i], px[i + 1], px[i + 2]); }
-    expect(at(100, 40).toARGB32(), red.toARGB32(), reason: 'the middle is the line colour');
+    expect(at(100, 40 - 5).toARGB32(), red.toARGB32(), reason: 'the body is the line colour');
+    expect(HSLColor.fromColor(at(100, 40)).lightness, greaterThan(HSLColor.fromColor(red).lightness), reason: 'a lighter shine down the middle');
     final edge = at(100, 40 - 9); // just outside the 16-wide line, inside the border
     expect(HSLColor.fromColor(edge).lightness, lessThan(HSLColor.fromColor(red).lightness - 0.1), reason: 'darker edge');
   });
