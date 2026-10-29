@@ -20,7 +20,10 @@ class MainFlutterWindow: NSWindow {
     // Clicking a full-screen app leaves an accessory app's window floating in that app's Space (it can't go
     // behind), so the editor saves and hides instead, as Esc does. Not when pinned (on top on purpose).
     NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
-      DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self?.hideIfFloatingOverFullScreenApp() }
+      // Checked a few times as the other app comes forward, so it hides as soon as that's clear
+      for delay in [0.03, 0.1, 0.2, 0.4] {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { self?.hideIfFloatingOverFullScreenApp() }
+      }
     }
   }
 
@@ -37,7 +40,10 @@ class MainFlutterWindow: NSWindow {
             let b = w[kCGWindowBounds as String] as? NSDictionary, let r = CGRect(dictionaryRepresentation: b) else { return false }
       return r.width >= screen.width && r.height >= screen.height * 0.85
     }
-    if fullScreen { SnapLiteNative.shared?.invoke("saveAndHide") }
+    if fullScreen {
+      orderOut(nil)   // off screen right away; Dart then saves any edits (its hide is a no-op by then)
+      SnapLiteNative.shared?.invoke("saveAndHide")
+    }
   }
 
   // Menu bar app: the editor window starts hidden (window_manager's pattern, so the engine still starts).
