@@ -1516,7 +1516,10 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
         const SingleActivator(LogicalKeyboardKey.keyA, meta: true): selectImage,
         const SingleActivator(LogicalKeyboardKey.delete): _deleteSelection,
         const SingleActivator(LogicalKeyboardKey.backspace): _deleteSelection,
-        const SingleActivator(LogicalKeyboardKey.escape): () => setState(() => _selection = null),
+        // First Esc drops the selection; Esc with nothing selected closes the window like ⌘W.
+        const SingleActivator(LogicalKeyboardKey.escape): () => _selection != null
+            ? setState(() => _selection = null)
+            : AppController.instance.onWindowClose(),
         for (final e in _toolKeys.entries) SingleActivator(e.key): () => _setTool(e.value),
       },
       child: Focus(focusNode: _focus, autofocus: true, child: _scaffold(state)),
