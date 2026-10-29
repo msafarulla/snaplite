@@ -868,6 +868,36 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     _showCopied();
   }
 
+  final _shareKey = GlobalKey();
+
+  /// Share button: what ⌘C would copy (the flattened picture, or the looping GIF when something marches)
+  /// as a file in the macOS share menu. Flattened only, so blurred parts can't be recovered from it.
+  Future<void> share() async {
+    _endTextEdit();
+    final s = _state;
+    final box = _shareKey.currentContext?.findRenderObject() as RenderBox?;
+    if (s == null || box == null) return;
+    final String path;
+    try {
+      final dir = Directory('${Directory.systemTemp.path}/SnapNow Share')..createSync(recursive: true);
+      if (BuildUpGif.marches(s)) {
+        path = '${dir.path}/${_gifName()}.gif';
+        await File(path).writeAsBytes(await BuildUpGif.renderMarching(s), flush: true);
+      } else {
+        final png = await _flatPng();
+        if (png == null) return;
+        path = '${dir.path}/${_gifName()}.png';
+        await File(path).writeAsBytes(png, flush: true);
+      }
+    } catch (e, st) {
+      debugPrint('Share: $e\n$st');
+      await Native.toast("Couldn't prepare the image", symbol: 'exclamationmark.triangle.fill');
+      return;
+    }
+    if (!mounted) return;
+    await Native.share(path, box.localToGlobal(Offset.zero) & box.size);
+  }
+
   /// Saves back to the capture's file, or a new file in Pictures › SnapNow. The file is the finished
   /// image with the markup kept inside it, so reopening it later brings the annotations back.
   Future<void> save() async {
@@ -1887,6 +1917,8 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
         _ToolButton(icon: Icons.document_scanner_outlined, label: 'Copy Text', onTap: _copyAllText),
         _ToolButton(icon: Icons.folder_outlined, label: 'Finder', onTap: _path == null ? null : () => Native.reveal(_path!)),
         _ToolButton(icon: Icons.content_copy, label: 'Copy', onTap: _copyImage),
+        if (Platform.isMacOS)
+          KeyedSubtree(key: _shareKey, child: _ToolButton(icon: Icons.ios_share, label: 'Share', onTap: share)),
         _ToolButton(icon: Icons.save_outlined, label: 'Save', onTap: save, primary: hasUnsavedChanges),
       ]),
     );

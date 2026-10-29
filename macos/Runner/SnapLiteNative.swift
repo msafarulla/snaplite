@@ -87,6 +87,17 @@ final class SnapLiteNative {
       NSPasteboard.general.clearContents()
       NSPasteboard.general.writeObjects([item])
       result(nil)
+    case "share":
+      // The system share menu under the editor's Share button; Flutter sends the button's rect with a
+      // top-left origin, so flip it unless the Flutter view already is
+      guard let path = args["path"] as? String,
+            let view = NSApp.windows.first(where: { $0 is MainFlutterWindow })?.contentView else { result(nil); return }
+      let x = args["x"] as? Double ?? 0, y = args["y"] as? Double ?? 0
+      let w = args["w"] as? Double ?? 1, h = args["h"] as? Double ?? 1
+      let rect = NSRect(x: x, y: view.isFlipped ? y : view.bounds.height - y - h, width: w, height: h)
+      NSSharingServicePicker(items: [URL(fileURLWithPath: path)]).show(relativeTo: rect, of: view,
+                                                                         preferredEdge: view.isFlipped ? .maxY : .minY) // below
+      result(nil)
     case "copySticker":
       guard let png = (args["png"] as? FlutterStandardTypedData)?.data else { result(nil); return }
       Sticker.copy(png: png, name: args["name"] as? String ?? "SnapNow", result: result)

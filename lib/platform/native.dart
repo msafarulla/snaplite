@@ -39,6 +39,9 @@ class Native {
   static Future<void> copyTextOfFile(String path) => _call('copyTextOfFile', {'path': path});
   /// Puts the GIF file on the clipboard as both GIF data and a file, so it pastes animated.
   static Future<void> copyGif(String path) => _call('copyGif', {'path': path});
+  /// The macOS share menu (Messages, Mail, AirDrop, Notes…) for a file, shown under [anchor] (window points).
+  static Future<void> share(String path, Rect anchor) => _call('share',
+      {'path': path, 'x': anchor.left, 'y': anchor.top, 'w': anchor.width, 'h': anchor.height});
   /// The image as a WhatsApp sticker (512×512 WebP) on the clipboard; returns the sticker file's path.
   static Future<String?> copySticker(Uint8List png, {required String name}) =>
       _call<String>('copySticker', {'png': png, 'name': name});
