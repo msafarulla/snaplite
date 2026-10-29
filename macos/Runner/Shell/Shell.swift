@@ -157,9 +157,30 @@ final class Shell: NSObject, NSMenuDelegate {
 
     // MARK: - Menu bar icon states
 
+    /// The app icon in miniature: a white viewfinder on the app's blue rounded tile, so it reads on light
+    /// and dark menu bars alike (a blue-tinted glyph got lost on a dark one).
+    private static let idleIcon: NSImage = {
+        let image = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { rect in
+            NSColor(srgbRed: 0.30, green: 0.45, blue: 1.0, alpha: 1).setFill()
+            NSBezierPath(roundedRect: rect, xRadius: 4.5, yRadius: 4.5).fill()
+            let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
+                .applying(NSImage.SymbolConfiguration(paletteColors: [.white]))
+            if let glyph = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: nil)?
+                .withSymbolConfiguration(config) {
+                let s = glyph.size
+                glyph.draw(in: NSRect(x: (rect.width - s.width) / 2, y: (rect.height - s.height) / 2,
+                                      width: s.width, height: s.height))
+            }
+            return true
+        }
+        image.isTemplate = false
+        image.accessibilityDescription = "SnapNow"
+        return image
+    }()
+
     private func showIdleIcon() {
-        statusItem.button?.image = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: "SnapNow")
-        statusItem.button?.contentTintColor = NSColor(srgbRed: 0.30, green: 0.45, blue: 1.0, alpha: 1) // the app icon's blue
+        statusItem.button?.image = Self.idleIcon
+        statusItem.button?.contentTintColor = nil
         statusItem.button?.title = ""
         statusItem.button?.imagePosition = .imageOnly
     }
