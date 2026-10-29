@@ -49,4 +49,16 @@ void main() {
     final edge = at(100, 40 - 9); // just outside the 16-wide line, inside the border
     expect(HSLColor.fromColor(edge).lightness, lessThan(HSLColor.fromColor(red).lightness - 0.1), reason: 'darker edge');
   });
+
+  test('without Border, the chosen colour is the Outline\'s', () async {
+    const red = Color(0xFFFF3B30);
+    final r = ui.PictureRecorder();
+    final canvas = Canvas(r)..drawColor(Colors.white, BlendMode.src);
+    CanvasPainter.strokeStyled(canvas, Path()..moveTo(20, 40)..lineTo(180, 40),
+        const ArrowStyle(end: ArrowHead.none, outline: true, shadow: false, borderColor: Color(0xFF007AFF)), red, 16);
+    final img = await r.endRecording().toImage(200, 80);
+    final px = (await img.toByteData(format: ui.ImageByteFormat.rawStraightRgba))!.buffer.asUint8List();
+    final i = ((40 - 9) * 200 + 100) * 4;
+    expect(px[i + 2] > 200 && px[i] < 60, isTrue, reason: 'blue outline just outside the red line');
+  });
 }

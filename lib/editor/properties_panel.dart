@@ -218,11 +218,11 @@ class PropertiesPanel extends StatelessWidget {
               child: _check(context, 'Border', style.border, (v) => host.setArrowStyle(style.copyWith(border: v)), indent: false),
             ),
           ]),
-          if (style.border)
-            _row(context, 'Border', [
+          if (style.border || style.outline)
+            _row(context, 'Outline\ncolor', [
               Expanded(
                 child: Wrap(spacing: 5, runSpacing: 5, children: [
-                  for (final (name, c) in [('Automatic (a dark shade of the line)', null), ...colors])
+                  for (final (name, c) in [(style.border ? 'Automatic (a dark shade of the line)' : 'Automatic (black or white, whichever contrasts)', null), ...colors])
                     _ColorDot(name: name, color: c, selected: style.borderColor?.toARGB32() == c?.toARGB32(),
                         onTap: () => host.setArrowStyle(style.withBorderColor(c))),
                 ]),

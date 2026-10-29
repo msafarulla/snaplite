@@ -103,7 +103,7 @@ class ArrowStyle {
   final bool outline;
   final bool shadow;
   final bool border; // a thin edge in a darker shade of the line's own colour
-  final Color? borderColor; // the edge's colour; null = automatic (a dark shade of the line's colour)
+  final Color? borderColor; // the Border edge's colour, or the Outline's when Border is off; null = automatic
   final double? width; // exact line thickness in points (the thickness slider); null = from S / M / L
   const ArrowStyle({
     this.start = ArrowHead.none,

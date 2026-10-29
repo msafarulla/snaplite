@@ -381,7 +381,8 @@ class CanvasPainter extends CustomPainter {
     // the contrast outline, when on too, goes outside it
     final edge = style.border ? math.max(1.5, outlineWidth * 0.7) : 0.0;   // bold enough to read at any size
     void paintLayers({bool shadowPass = false}) {
-      if (style.outline) render(contrast(color), outlineWidth + edge);
+      // The chosen outline colour is the Border's edge when Border is on, otherwise the Outline's
+      if (style.outline) render(style.border ? contrast(color) : style.borderColor ?? contrast(color), outlineWidth + edge);
       if (style.border) render(style.borderColor ?? darker(color), edge);
       render(color, 0);
       if (style.border && !shadowPass) shine?.call(CanvasPainter.shine(color));
