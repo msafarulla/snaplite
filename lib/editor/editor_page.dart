@@ -17,6 +17,7 @@ import '../model/annotation.dart';
 import '../model/markup_file.dart';
 import '../platform/native.dart';
 import 'canvas_painter.dart';
+import 'manim_page.dart';
 import 'properties_panel.dart';
 import 'quick_styles.dart';
 import 'snapping.dart';
@@ -327,7 +328,16 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
       case 'zoomFit': zoomToFit();
       case 'zoomActual': zoomActualSize();
       case 'pin': _setPinned(!_pinned);
+      case 'manim': _openManim();
     }
+  }
+
+  /// File › Animate with Manim…: the capture as an editable Manim scene (lib/editor/manim_page.dart).
+  void _openManim() {
+    _endTextEdit();
+    final s = _state;
+    if (s == null) return;
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => ManimPage(state: s)));
   }
 
   void _showCopied() {

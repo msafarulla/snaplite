@@ -146,6 +146,26 @@ itself (no screen recording needed).
 | Still WhatsApp sticker | More › Copy as Still Sticker (or ⌃⌘C with no markup) | Pastes straight into a chat as a sticker |
 | Moving marching ants | Tick **Marching** on any dashed or dotted line or box, then **⌘C** | A looping GIF where only the dashes move |
 
+### Animate with Manim
+
+**File › Animate with Manim…** turns the capture into a [Manim](https://www.manim.community) scene: the
+screenshot as the backdrop and every annotation as a Manim object, animated in the order you added it (arrows
+and boxes draw on, text writes itself, steps grow, highlights wipe in). Edit the Python right there, pick GIF or
+MP4 and Preview (480p) or HD (1080p), and **Render**: the result lands in the Library like a recording. Blurred
+areas are baked into the backdrop, so the scene never contains what you blurred.
+
+SnapNow doesn't ship Manim (it's a few hundred MB of Python). Install it once, in Terminal:
+
+```sh
+brew install cairo pango pkgconf ffmpeg
+python3 -m venv ~/.local/share/snapnow/manim
+~/.local/share/snapnow/manim/bin/pip install manim
+```
+
+SnapNow uses that install first, then `manim` from Homebrew or `~/.local/bin`, and shows which one and its
+version. Render runs the scene's Python on your Mac, so only render code you trust. LaTeX isn't needed for the
+generated scenes (they use `Text`); install MacTeX if you add `MathTex` formulas.
+
 ### The build-up GIF
 
 1. Capture something and add your markup (arrows, boxes, steps, callouts, highlights…) in the order you want it
