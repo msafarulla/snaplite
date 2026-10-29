@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:window_manager/window_manager.dart';
 import '../app/app_controller.dart';
+import '../app/app_menu.dart';
 import '../editor/editor_page.dart';
 import '../platform/native.dart';
 
@@ -32,6 +33,22 @@ class LibraryPageState extends State<LibraryPage> {
   final _filmScroll = ScrollController();
 
   EditorPageState? get _editor => AppController.instance.editorKey.currentState;
+
+  // ---- The menu bar (lib/app/app_menu.dart) ----
+
+  bool get editing => _editing;
+  bool get hasSelection => _selection.isNotEmpty;
+
+  /// Grid-mode menu commands (the same as its keys); in edit mode the menu talks to the editor.
+  void runMenu(String id) {
+    switch (id) {
+      case 'openSelected': _open(_selection);
+      case 'copyFiles': Native.copyFiles(_selection);
+      case 'selectAll': setState(() => _selected.addAll(_shown.map((f) => f.path)));
+      case 'trash': _trash(_selection);
+      case 'library': showGrid();
+    }
+  }
 
   @override
   void initState() {
@@ -210,13 +227,13 @@ class LibraryPageState extends State<LibraryPage> {
   @override
   Widget build(BuildContext context) {
     // Esc from anywhere in the window (grid, filmstrip, editor) saves and closes
-    return CallbackShortcuts(
+    return AppMenuBar(library: this, child: CallbackShortcuts(
       bindings: {const SingleActivator(LogicalKeyboardKey.escape): AppController.instance.saveAndClose},
       child: IndexedStack(
         index: _editing ? 1 : 0,
         children: [_gridMode(context), _editMode(context)],
       ),
-    );
+    ));
   }
 
   Widget _gridMode(BuildContext context) {

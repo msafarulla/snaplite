@@ -106,13 +106,18 @@ The panel on the right edits the selection, or the defaults for the tool you're 
 - **Lines:** solid, dashed, dotted, dash-dot and long dash, each with a **Marching** checkbox that makes the
   dashes run toward the arrowhead (in the editor and in GIFs); tapered, outline, shadow; straighten a curve
 
+**Like any Mac app, the commands are in the menu bar** while SnapNow is in front: File (new capture, open,
+save, Save As, animated GIF, share, show in Finder), Edit (undo, copy, copy as GIF or sticker, copy all text),
+View (zoom, back to the Library), Image (flip, trim, crop to canvas, resize, canvas colour, add image,
+flatten), Tools and Window (keep on top). The window itself only holds the annotating tools.
+
 Right-click the canvas to flip, trim, crop to the canvas, resize it, change the canvas colour or flatten
 everything into the image. Drag the image's square handles to add space around it.
 
 **⌘C** copies the finished image (marching ants show it worked), **⌘S** saves it back to the capture.
 **⇧⌘S** (Save As…) exports PNG, JPEG, HEIC, TIFF, PDF, GIF or BMP, keeping Retina resolution.
-**Share** (toolbar) opens the macOS share menu (Messages, Mail, AirDrop, Notes, WhatsApp…) with the finished
-image. **Pin** (⌥⌘T) keeps the editor above other windows. Changes are saved automatically: **Esc** or ⌘W
+**File › Share…** opens the macOS share menu (Messages, Mail, AirDrop, Notes, WhatsApp…) with the finished
+image. **Window › Keep on Top** (⌥⌘T) keeps the editor above other windows. Changes are saved automatically: **Esc** or ⌘W
 closes the window, and clicking another capture in the filmstrip switches to it, without a Save / Don't Save
 question (the markup stays editable, so nothing is lost). If the editor opens over a full-screen app, clicking that app tucks the editor away without
 closing it; ⌘-Tab (or the Dock icon) brings it back exactly as you left it.

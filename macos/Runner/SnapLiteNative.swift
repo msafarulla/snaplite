@@ -209,6 +209,9 @@ final class SnapLiteNative {
       guard let png = (args["png"] as? FlutterStandardTypedData)?.data else { result(nil); return }
       SaveAs.run(png: png, name: args["name"] as? String ?? "SnapNow",
                  density: args["density"] as? Double ?? 1, result: result)
+    case "openUrl":
+      if let url = URL(string: args["url"] as? String ?? ""), ["https", "http"].contains(url.scheme) { NSWorkspace.shared.open(url) }
+      result(nil)
     case "reveal":
       if let path = args["path"] as? String { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) }
       result(nil)

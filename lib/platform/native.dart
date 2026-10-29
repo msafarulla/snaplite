@@ -97,6 +97,7 @@ class Native {
   static Future<int> displayUnderMouse() async => await _call<int>('displayUnderMouse') ?? 1;
 
   static Future<void> reveal(String path) => _call('reveal', {'path': path});
+  static Future<void> openUrl(String url) => _call('openUrl', {'url': url});
   static Future<void> openPath(String path) => _call('openPath', {'path': path});
   static Future<void> activate() => _call('activate');
   static Future<void> beep() => _call('beep');

@@ -287,6 +287,49 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
 
   void selectImage() => setState(() { _selection = null; _imageSelected = true; });
 
+  // ---- The menu bar (lib/app/app_menu.dart) ----
+
+  bool get canUndo => _undo.isNotEmpty;
+  bool get canRedo => _redo.isNotEmpty;
+  bool get pinned => _pinned;
+  bool get hasSelection => _selection != null;
+
+  /// Runs a menu bar command (the same actions as the editor's keys and its canvas menu).
+  void runMenu(String id) {
+    final t = Tool.values.where((t) => t.name == id).firstOrNull;
+    if (t != null) return _setTool(t == Tool.box ? _shapeKind.tool : t);
+    switch (id) {
+      case 'undo': _undoAction();
+      case 'redo': _redoAction();
+      case 'copy': _copyImage();
+      case 'copyGif': copyAnimatedGif();
+      case 'copySticker': copySticker();
+      case 'copyStillSticker': copyStillSticker();
+      case 'copyText': _copyAllText();
+      case 'delete': _deleteSelection();
+      case 'selectAll': selectImage();
+      case 'save': save();
+      case 'saveAs': saveAs();
+      case 'saveGif': saveAnimatedGif();
+      case 'share': share();
+      case 'reveal': if (_path != null) Native.reveal(_path!);
+      case 'open': openImageDialog();
+      case 'addImage': _addOverlay();
+      case 'flipH': _flipImage(true);
+      case 'flipV': _flipImage(false);
+      case 'trim': _trim();
+      case 'cropCanvas': _cropToCanvas();
+      case 'resize': _resizeCanvasDialog();
+      case 'canvasColor': _changeCanvasColor();
+      case 'flatten': _flattenInPlace();
+      case 'zoomIn': zoomIn();
+      case 'zoomOut': zoomOut();
+      case 'zoomFit': zoomToFit();
+      case 'zoomActual': zoomActualSize();
+      case 'pin': _setPinned(!_pinned);
+    }
+  }
+
   void _showCopied() {
     _antsTimer?.cancel();
     _antsTimer = Timer.periodic(const Duration(milliseconds: 83), (_) => _ants.value = (_ants.value + 1) % 8);
@@ -888,7 +931,8 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
   Future<void> share() async {
     _endTextEdit();
     final s = _state;
-    final box = _shareKey.currentContext?.findRenderObject() as RenderBox?;
+    // The share menu opens under the toolbar's right end (the Share item is in the File menu now)
+    final box = (_shareKey.currentContext ?? context).findRenderObject() as RenderBox?;
     if (s == null || box == null) return;
     final String path;
     try {
@@ -908,7 +952,10 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
       return;
     }
     if (!mounted) return;
-    await Native.share(path, box.localToGlobal(Offset.zero) & box.size);
+    final at = box.localToGlobal(Offset.zero);
+    await Native.share(path, _shareKey.currentContext != null
+        ? at & box.size
+        : Rect.fromLTWH(at.dx + box.size.width - 72, at.dy, 56, 58)); // the toolbar's right end
   }
 
   /// Saves back to the capture's file, or a new file in Pictures › SnapNow. The file is the finished
@@ -2028,15 +2075,15 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
                 items: [
                   for (final t in hidden) (t.name, _toolInfo[t]!.$1, _toolInfo[t]!.$2),
                   if (hidden.isNotEmpty) null,
-                  ('open', Icons.folder_open_outlined, 'Open Image…'),
                   ('overlay', Icons.add_photo_alternate_outlined, 'Add Image…'),
-                  ('flatten', Icons.layers_clear_outlined, 'Flatten All'),
-                  ('export', Icons.ios_share, 'Save As…'),
-                  ('gif', Icons.gif_box_outlined, 'Save as Animated GIF…'),
-                  ('copyGif', Icons.gif_outlined, 'Copy as Animated GIF  ⇧⌘C'),
-                  if (Platform.isMacOS) ('copySticker', Icons.emoji_emotions_outlined, 'Animated WhatsApp Sticker  ⌃⌘C'),
-                  if (Platform.isMacOS) ('copyStillSticker', Icons.emoji_emotions_outlined, 'Copy as Still Sticker'),
-                  ('settings', Icons.settings_outlined, 'Settings…'),
+                  // On macOS saving, copying, sharing and the rest are in the menu bar; elsewhere they're here
+                  if (!Platform.isMacOS) ...[
+                    ('open', Icons.folder_open_outlined, 'Open Image…'),
+                    ('flatten', Icons.layers_clear_outlined, 'Flatten All'),
+                    ('export', Icons.ios_share, 'Save As…'),
+                    ('gif', Icons.gif_box_outlined, 'Save as Animated GIF…'),
+                    ('copyGif', Icons.gif_outlined, 'Copy as Animated GIF  ⇧⌘C'),
+                  ],
                 ],
                 onSelected: (v) {
                   final t = Tool.values.where((t) => t.name == v).firstOrNull;
@@ -2057,17 +2104,14 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
             ]),
           ),
         ),
-        _ToolButton(icon: _pinned ? Icons.push_pin : Icons.push_pin_outlined, label: 'Pin', active: _pinned,
-            onTap: () => _setPinned(!_pinned)),
+        // The window is for annotating: on macOS Save, Copy, Share, Pin and the rest live in the menu bar
         _ToolButton(icon: Icons.undo, label: 'Undo', onTap: _undo.isEmpty ? null : _undoAction),
         _ToolButton(icon: Icons.redo, label: 'Redo', onTap: _redo.isEmpty ? null : _redoAction),
-        const SizedBox(width: 6),
-        _ToolButton(icon: Icons.document_scanner_outlined, label: 'Copy Text', onTap: _copyAllText),
-        _ToolButton(icon: Icons.folder_outlined, label: 'Finder', onTap: _path == null ? null : () => Native.reveal(_path!)),
-        _ToolButton(icon: Icons.content_copy, label: 'Copy', onTap: _copyImage),
-        if (Platform.isMacOS)
-          KeyedSubtree(key: _shareKey, child: _ToolButton(icon: Icons.ios_share, label: 'Share', onTap: share)),
-        _ToolButton(icon: Icons.save_outlined, label: 'Save', onTap: save, primary: hasUnsavedChanges),
+        if (!Platform.isMacOS) ...[
+          const SizedBox(width: 6),
+          _ToolButton(icon: Icons.content_copy, label: 'Copy', onTap: _copyImage),
+          _ToolButton(icon: Icons.save_outlined, label: 'Save', onTap: save, primary: hasUnsavedChanges),
+        ],
       ]),
     );
   }

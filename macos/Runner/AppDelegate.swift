@@ -6,6 +6,7 @@ class AppDelegate: FlutterAppDelegate {
   // FlutterAppDelegate has no applicationDidFinishLaunching of its own, so no super call (it throws).
   override func applicationDidFinishLaunching(_ notification: Notification) {
     Shell.shared.start()   // status item, capture panel, menu, hotkeys
+    NSWindow.allowsAutomaticWindowTabbing = false   // no Show Tab Bar / Show All Tabs in the View menu
   }
 
   // Menu bar app: closing the editor window only hides it.
