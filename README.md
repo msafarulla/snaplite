@@ -14,8 +14,9 @@ blur what's private, and copy or save it, without leaving your keyboard.
 
 ## Why SnapNow
 
-- **One shortcut, done.** Press your capture shortcut (⌃⇧C by default, any combination you like), drag an area,
-  and the capture opens in the editor, already saved to `~/Pictures/SnapNow`.
+- **One shortcut, done.** Press your capture shortcut (⌃⇧C by default, any combination you like), drag an area
+  (or click a window, or press Enter for the same area as last time), and the capture opens in the editor,
+  already saved to `~/Pictures/SnapNow`.
 - **Annotations that look good by default.** Arrows taper and curve, callouts point at things, steps number
   themselves, and everything has a soft shadow. Pick a ready-made style with one click.
 - **Every capture in one place.** The Library keeps all your captures and recordings; drag any of them into
@@ -40,7 +41,7 @@ Click the menu bar icon for the capture panel, or right-click it for the full me
 
 | | Default shortcut |
 |---|---|
-| Capture an area (press Space to pick a window) | ⌃⇧C |
+| Capture an area (or click a window) | ⌃⇧C |
 | Capture a window | ⌃⇧W |
 | Capture the full screen | ⌃⇧F |
 | Copy text from an area | ⌃⇧T |
@@ -49,6 +50,29 @@ Click the menu bar icon for the capture panel, or right-click it for the full me
 
 All of them can be changed in **Settings › Shortcuts**. The capture panel adds a time delay, effects
 (border, shadow), sharing (copy to Desktop, show in Finder, open in Preview) and saved presets.
+
+### Capturing an area
+
+When you press ⌃⇧C the screen freezes and dims, so menus and hover states stay exactly as they were:
+
+- **Orange crosshair lines** run across the whole screen through the cursor.
+- **A magnifier** under the cursor shows the pixels on a grid, with the cursor's position below it
+  (`x = 812   y = 430`, in points from the top-left of the screen) or, while you drag, the selection's size.
+- **The window under the cursor** is lit up (not dimmed).
+
+| To capture | Do this |
+|---|---|
+| An area | Drag. The selection can't cross onto another display. |
+| The window under the cursor | Click |
+| The whole screen | Click where there's no window |
+| The same area as last time | **Enter**, or click inside the orange outline |
+| Nothing | **Esc** (you're back in the app you were using) |
+
+Your last area is remembered, even after a restart, and shown with an orange marching-ants outline each time,
+so a series of identical captures is ⌃⇧C, Enter, ⌃⇧C, Enter.
+
+This needs **Screen Recording** permission (see [Install](#macos)). Without it, SnapNow uses the plain macOS
+crosshair instead (Space switches it to picking a window), so capturing still works.
 
 ## Mark it up
 
@@ -67,12 +91,20 @@ All of them can be changed in **Settings › Shortcuts**. The capture panel adds
 
 <img align="right" src="docs/screenshots/arrow-options.png" alt="Arrow options: ten head types, head size, line patterns, tapered, outline, shadow" width="250">
 
+**Click any annotation** and a bar appears above it, as in Snagit: one click on a colour bubble recolours it
+(the rainbow bubble opens the macOS colour picker). For arrows and lines the bar has a second row with the
+start and end arrowheads (the head size is at the bottom of either menu), the line pattern, a **Marching**
+checkbox and ⇄ Swap Ends. A slider beside the annotation sets its thickness; drag up for thicker.
+
 The panel on the right edits the selection, or the defaults for the tool you're using:
 
-- **Styles:** Starter, Bold, Muted and Tokyo Night sets, plus your own saved styles
-- **Colour and size:** swatches, any colour from the macOS picker, S / M / L
-- **Arrowheads:** ten head types for each end, head size, swap ends
-- **Lines:** solid, dashed, dotted, dash-dot and long dash; tapered, outline, shadow; straighten a curve
+- **Styles:** each ready-made look once, in the current colour, plus your own saved styles (gear › Save
+  Current Style)
+- **Size:** S / M / L
+- **Arrowheads:** ten head types for each end; the head size (Small / Medium / Large) is at the bottom of the
+  Start and End menus; ⇄ swaps the ends
+- **Lines:** solid, dashed, dotted, dash-dot and long dash, each with a **Marching** checkbox that makes the
+  dashes run toward the arrowhead (in the editor and in GIFs); tapered, outline, shadow; straighten a curve
 
 Right-click the canvas to flip, trim, crop to the canvas, resize it, change the canvas colour or flatten
 everything into the image. Drag the image's square handles to add space around it.
@@ -81,7 +113,8 @@ everything into the image. Drag the image's square handles to add space around i
 **⇧⌘S** (Save As…) exports PNG, JPEG, HEIC, TIFF, PDF, GIF or BMP, keeping Retina resolution.
 **Share** (toolbar) opens the macOS share menu (Messages, Mail, AirDrop, Notes, WhatsApp…) with the finished
 image. **Pin** (⌥⌘T) keeps the editor above other windows. **Esc** saves your changes and closes the window
-(⌘W asks first).
+(⌘W asks first). If the editor opens over a full-screen app, clicking that app tucks the editor away without
+closing it; ⌘-Tab (or the Dock icon) brings it back exactly as you left it.
 
 **Changed your mind later?** ⌘S keeps your markup inside the saved PNG. Any app shows the finished picture, but
 when you reopen it in SnapNow the original capture and every annotation come back, still editable and in the
@@ -105,7 +138,7 @@ itself (no screen recording needed).
 | Animated GIF file | More › Save as Animated GIF… | A `.gif` wherever you choose |
 | Animated WhatsApp sticker | **⌃⌘C** (More › Animated WhatsApp Sticker) | Added to a "SnapNow" sticker pack in WhatsApp |
 | Still WhatsApp sticker | More › Copy as Still Sticker (or ⌃⌘C with no markup) | Pastes straight into a chat as a sticker |
-| Moving marching ants | Pattern › Marching Ants on any line or box, then **⌘C** | A looping GIF where only the dashes move |
+| Moving marching ants | Tick **Marching** on any dashed or dotted line or box, then **⌘C** | A looping GIF where only the dashes move |
 
 ### The build-up GIF
 
@@ -160,8 +193,12 @@ repository's source.
 2. Open it. SnapNow isn't notarized by Apple yet (that needs a paid Apple Developer ID), so the first time
    macOS says it can't check the app. Click **Done**, then go to **System Settings › Privacy & Security**,
    scroll down to *"SnapNow" was blocked* and click **Open Anyway**. You only do this once per version.
-3. On your first capture macOS asks for **Screen Recording** permission (System Settings › Privacy & Security ›
-   Screen & System Audio Recording). Downloaded builds are signed ad hoc, so macOS may ask again after an update.
+3. Give SnapNow **Screen Recording** permission: macOS asks when SnapNow first starts, or turn it on in
+   **System Settings › Privacy & Security › Screen & System Audio Recording** (click **+** and choose
+   SnapNow if it isn't listed), then quit and reopen SnapNow. The frozen-screen area capture, the full-screen
+   capture and recording need it. macOS only asks once; if you dismissed it, use System Settings.
+   Downloaded builds are signed ad hoc, so after an update macOS may need the permission switched off and on
+   again. A sign that it's missing: ⌃⇧C shows the plain macOS crosshair instead of SnapNow's frozen screen.
 
 <details>
 <summary>Advanced: skip the Gatekeeper prompt from Terminal</summary>
@@ -221,8 +258,9 @@ install Flutter and run `flutter build windows` or `flutter build linux`.
 
 - **Editor and Library:** Flutter (Dart), so they can come to Windows and Linux.
 - **macOS shell:** native Swift in [`macos/Runner/Shell`](macos/Runner/Shell): the menu bar item, capture
-  panel, global hotkeys (Carbon, no Accessibility permission needed), `screencapture`-based capture and
-  recording, Vision OCR and Quick Look thumbnails, talking to Flutter over one method channel
+  panel, global hotkeys (Carbon, no Accessibility permission needed), the area picker
+  ([`RegionCapture.swift`](macos/Runner/Shell/RegionCapture.swift): a ScreenCaptureKit freeze of each display
+  under non-activating overlay panels), `screencapture`-based window, full-screen and video capture, Vision OCR and Quick Look thumbnails, talking to Flutter over one method channel
   ([`SnapLiteNative.swift`](macos/Runner/SnapLiteNative.swift) ↔ [`native.dart`](lib/platform/native.dart)).
 - Settings live in the app's UserDefaults (`defaults read com.mm.SnapLite`).
 
