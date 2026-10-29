@@ -463,7 +463,7 @@ void main() {
     expect(editor.selected!.size, StrokeSize.large);
   });
 
-  testWidgets('clicking an arrow shows a colour bar above it; a bubble recolours the arrow', (tester) async {
+  testWidgets('clicking an arrow shows a colour bar above it; a bubble recolours the arrow, the second row sets its heads', (tester) async {
     final editor = await pumpEditor(tester);
     await tester.tap(find.text('Arrow'));
     await tester.pump();
@@ -478,6 +478,16 @@ void main() {
     await tester.pump();
     expect(editor.selected!.color.toARGB32(), const Color(0xFF007AFF).toARGB32());
     expect(bar, findsOneWidget, reason: 'stays up for another pick');
+
+    // Arrowheads in the same bar
+    await tester.tap(find.byKey(const ValueKey('snaplite-bar-end')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(ArrowHead.dot.label).last);
+    await tester.pumpAndSettle();
+    expect(editor.selected!.arrowStyle.end, ArrowHead.dot);
+    await tester.tap(find.descendant(of: bar, matching: find.byTooltip('Swap Ends')));
+    await tester.pump();
+    expect(editor.selected!.arrowStyle.start, ArrowHead.dot);
   });
 
   testWidgets('after bending an arrow, the thickness slider is back (and on clicking it again)', (tester) async {

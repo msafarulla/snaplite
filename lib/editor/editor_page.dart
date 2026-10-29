@@ -1780,8 +1780,9 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     final b = _boxOf(a);
     final box = Rect.fromLTRB(origin.dx + b.left * scale, origin.dy + b.top * scale, origin.dx + b.right * scale,
         origin.dy + b.bottom * scale);
-    final w = _ColorBar.width;
-    const h = _ColorBar.height, gap = 12.0;
+    final lines = a.styleKind == StyleKind.arrow || a.styleKind == StyleKind.line;
+    final w = _ColorBar.widthFor(lines), h = _ColorBar.heightFor(lines);
+    const gap = 12.0;
     var top = box.top - gap - h;
     if (top < 8) top = box.bottom + gap;
     top = top.clamp(8.0, math.max(8.0, area.height - h - 8));
@@ -1789,7 +1790,8 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     return Positioned(
       left: left,
       top: top,
-      child: _ColorBar(selected: a.color, onPick: pickColor, onMore: openColorPanel),
+      child: _ColorBar(selected: a.color, onPick: pickColor, onMore: openColorPanel,
+          style: lines ? a.arrowStyle : null, onStyle: setArrowStyle),
     );
   }
 
@@ -2246,65 +2248,166 @@ class _ThicknessCard extends StatelessWidget {
   }
 }
 
-/// The colour bar shown above a selected annotation: the panel's colours plus "any colour", one click each.
+/// The bar shown above a selected annotation (as in Snagit): the colours plus "any colour", one click each;
+/// for arrows and lines a second row with the arrowheads, head size, Swap Ends and the line pattern.
 class _ColorBar extends StatelessWidget {
-  static const _dot = 20.0, _gap = 6.0, _pad = 8.0;
-  static final width = _pad * 2 + (PropertiesPanel.colors.length + 1) * (_dot + _gap) - _gap;
-  static const height = _dot + _pad * 2;
+  static const _dot = 20.0, _gap = 6.0, _pad = 8.0, _menu = 62.0, _row2 = 28.0;
+  static double widthFor(bool lines) => lines
+      ? _pad * 2 + 4 * _menu + 4 * 4 + 28
+      : _pad * 2 + (PropertiesPanel.colors.length + 1) * (_dot + _gap) - _gap;
+  static double heightFor(bool lines) => _dot + _pad * 2 + (lines ? _row2 + 6 : 0);
   final Color selected;
   final ValueChanged<Color> onPick;
   final VoidCallback onMore;
-  const _ColorBar({required this.selected, required this.onPick, required this.onMore});
+  final ArrowStyle? style; // an arrow or line: also show its arrowheads and pattern
+  final ValueChanged<ArrowStyle> onStyle;
+  const _ColorBar({required this.selected, required this.onPick, required this.onMore, this.style, required this.onStyle});
 
   @override
   Widget build(BuildContext context) {
     final s = Theme.of(context).colorScheme;
-    return Container(
-      key: const ValueKey('snaplite-colorbar'),
-      height: height,
-      padding: const EdgeInsets.symmetric(horizontal: _pad),
-      decoration: BoxDecoration(
-        color: s.surface.withValues(alpha: 0.95),
-        borderRadius: BorderRadius.circular(height / 2),
-        border: Border.all(color: s.outlineVariant.withValues(alpha: 0.7), width: 0.8),
-        boxShadow: const [BoxShadow(color: Color(0x22000000), blurRadius: 6, offset: Offset(0, 1))],
-      ),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        for (final (name, c) in PropertiesPanel.colors) ...[
-          Tooltip(
-            message: name,
-            waitDuration: const Duration(milliseconds: 600),
-            child: InkResponse(
-              onTap: () => onPick(c),
-              radius: 13,
-              child: Container(
-                width: _dot, height: _dot,
-                decoration: BoxDecoration(
-                  color: c,
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                      color: c.toARGB32() == selected.toARGB32() ? s.primary : s.outlineVariant,
-                      width: c.toARGB32() == selected.toARGB32() ? 2.5 : 0.8),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: _gap),
-        ],
+    final st = style;
+    final colours = Row(mainAxisSize: MainAxisSize.min, children: [
+      for (final (name, c) in PropertiesPanel.colors) ...[
         Tooltip(
-          message: 'Any color',
+          message: name,
           waitDuration: const Duration(milliseconds: 600),
           child: InkResponse(
-            onTap: onMore,
+            onTap: () => onPick(c),
             radius: 13,
             child: Container(
               width: _dot, height: _dot,
-              decoration: const BoxDecoration(shape: BoxShape.circle, gradient: SweepGradient(colors: [
-                Colors.red, Colors.yellow, Colors.green, Colors.cyan, Colors.blue, Colors.purple, Colors.red])),
+              decoration: BoxDecoration(
+                color: c,
+                shape: BoxShape.circle,
+                border: Border.all(
+                    color: c.toARGB32() == selected.toARGB32() ? s.primary : s.outlineVariant,
+                    width: c.toARGB32() == selected.toARGB32() ? 2.5 : 0.8),
+              ),
             ),
           ),
         ),
+        const SizedBox(width: _gap),
+      ],
+      Tooltip(
+        message: 'Any color',
+        waitDuration: const Duration(milliseconds: 600),
+        child: InkResponse(
+          onTap: onMore,
+          radius: 13,
+          child: Container(
+            width: _dot, height: _dot,
+            decoration: const BoxDecoration(shape: BoxShape.circle, gradient: SweepGradient(colors: [
+              Colors.red, Colors.yellow, Colors.green, Colors.cyan, Colors.blue, Colors.purple, Colors.red])),
+          ),
+        ),
+      ),
+    ]);
+    return Container(
+      key: const ValueKey('snaplite-colorbar'),
+      width: widthFor(st != null),
+      padding: const EdgeInsets.all(_pad),
+      decoration: BoxDecoration(
+        color: s.surface.withValues(alpha: 0.95),
+        borderRadius: BorderRadius.circular(st != null ? 14 : heightFor(false) / 2),
+        border: Border.all(color: s.outlineVariant.withValues(alpha: 0.7), width: 0.8),
+        boxShadow: const [BoxShadow(color: Color(0x22000000), blurRadius: 6, offset: Offset(0, 1))],
+      ),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        colours,
+        if (st != null) ...[
+          const SizedBox(height: 6),
+          SizedBox(
+            height: _row2,
+            child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              _MiniMenu<ArrowHead>(
+                key: const ValueKey('snaplite-bar-start'),
+                tooltip: 'Start',
+                value: st.start,
+                items: [for (final h in ArrowHead.values) (h, h.label,
+                    StylePreview(ArrowStyle(start: h, end: ArrowHead.none, headSize: st.headSize)))],
+                onChanged: (h) => onStyle(st.copyWith(start: h)),
+              ),
+              const SizedBox(width: 4),
+              _MiniMenu<ArrowHead>(
+                key: const ValueKey('snaplite-bar-end'),
+                tooltip: 'End',
+                value: st.end,
+                items: [for (final h in ArrowHead.values) (h, h.label,
+                    StylePreview(ArrowStyle(start: ArrowHead.none, end: h, headSize: st.headSize)))],
+                onChanged: (h) => onStyle(st.copyWith(end: h)),
+              ),
+              const SizedBox(width: 4),
+              _MiniMenu<HeadSize>(
+                tooltip: 'Head size',
+                value: st.headSize,
+                items: [for (final h in HeadSize.values) (h, h.label, StylePreview(ArrowStyle(end: ArrowHead.triangle, headSize: h)))],
+                onChanged: (h) => onStyle(st.copyWith(headSize: h)),
+              ),
+              const SizedBox(width: 4),
+              _MiniMenu<LinePattern>(
+                tooltip: 'Pattern',
+                value: st.pattern,
+                items: [for (final p in LinePattern.values) (p, p.label, StylePreview(ArrowStyle(end: ArrowHead.none, pattern: p)))],
+                onChanged: (p) => onStyle(st.copyWith(pattern: p)),
+              ),
+              const SizedBox(width: 4),
+              SizedBox(
+                width: 28,
+                child: IconButton(
+                  tooltip: 'Swap Ends',
+                  padding: EdgeInsets.zero,
+                  icon: const Icon(Icons.swap_horiz, size: 18),
+                  onPressed: () => onStyle(st.copyWith(start: st.end, end: st.start)),
+                ),
+              ),
+            ]),
+          ),
+        ],
       ]),
+    );
+  }
+}
+
+/// A small picker in the bar: shows the current choice's preview; the menu lists preview + name.
+class _MiniMenu<T> extends StatelessWidget {
+  final String tooltip;
+  final T value;
+  final List<(T, String, Widget)> items;
+  final ValueChanged<T> onChanged;
+  const _MiniMenu({super.key, required this.tooltip, required this.value, required this.items, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    final s = Theme.of(context).colorScheme;
+    final current = items.firstWhere((i) => i.$1 == value, orElse: () => items.first);
+    return PopupMenuButton<T>(
+      tooltip: tooltip,
+      initialValue: value,
+      onSelected: onChanged,
+      position: PopupMenuPosition.under,
+      itemBuilder: (_) => [
+        for (final i in items)
+          PopupMenuItem<T>(value: i.$1, height: 30, child: Row(mainAxisSize: MainAxisSize.min, children: [
+            SizedBox(width: 48, height: 18, child: i.$3),
+            const SizedBox(width: 8),
+            Text(i.$2, style: const TextStyle(fontSize: 12.5)),
+          ])),
+      ],
+      child: Container(
+        width: _ColorBar._menu,
+        height: _ColorBar._row2,
+        padding: const EdgeInsets.only(left: 4, right: 2),
+        decoration: BoxDecoration(
+          color: s.surface,
+          borderRadius: BorderRadius.circular(7),
+          border: Border.all(color: s.outlineVariant),
+        ),
+        child: Row(children: [
+          Expanded(child: FittedBox(child: SizedBox(width: 48, height: 18, child: current.$3))),
+          Icon(Icons.unfold_more, size: 12, color: s.onSurfaceVariant),
+        ]),
+      ),
     );
   }
 }
