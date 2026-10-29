@@ -204,7 +204,31 @@ final class RegionCapture {
         let rect = isDragging ? selection : (hoveredWindow ?? screen.frame)
         dragStart = nil
         guard let r = rect, r.width >= 1, r.height >= 1, let f = frozen.first(where: { $0.screen == screen }) else { finish(nil); return }
-        finish(save(r, from: f) ? url : nil)
+        finish(save(r, from: f) ? remember(r) : nil)
+    }
+
+    // MARK: The last area (Enter captures it again)
+
+    private static let lastKey = "regionCapture.lastArea"
+
+    /// The last captured area (global), if it's still on a screen.
+    static var lastArea: CGRect? {
+        guard let s = UserDefaults.standard.string(forKey: lastKey) else { return nil }
+        let r = NSRectFromString(s)
+        return r.width >= 1 && NSScreen.screens.contains(where: { $0.frame.contains(CGPoint(x: r.midX, y: r.midY)) }) ? r : nil
+    }
+
+    private func remember(_ r: CGRect) -> URL {
+        UserDefaults.standard.set(NSStringFromRect(r), forKey: Self.lastKey)
+        return url
+    }
+
+    /// Enter: the same area as last time, cut to the screen it's on.
+    func captureLastArea() {
+        guard let last = Self.lastArea,
+              let f = frozen.first(where: { $0.screen.frame.contains(CGPoint(x: last.midX, y: last.midY)) }) else { NSSound.beep(); return }
+        let r = last.intersection(f.screen.frame)
+        finish(save(r, from: f) ? remember(r) : nil)
     }
 
     /// Esc: closes the overlay and goes back to the app you were in (starting from the menu bar panel
@@ -301,7 +325,10 @@ private final class RegionView: NSView {
             ? focus.map { "\(Int($0.width.rounded())) x \(Int($0.height.rounded()))" } ?? ""
             : "x = \(Int(m.x))   y = \(Int(bounds.height - m.y))"
         let loupeRect = drawLoupe(at: m, ctx: ctx, label: size)
-        if capture.dragStart == nil { hint("Click, hold, and drag to select region", beside: loupeRect) }
+        if capture.dragStart == nil {
+            let last = RegionCapture.lastArea.map { "\nPress Enter for the last area (\(Int($0.width.rounded())) x \(Int($0.height.rounded())))" } ?? ""
+            hint("Click, hold, and drag to select region" + last, beside: loupeRect)
+        }
     }
 
     /// The magnifier below the cursor (above it near the bottom edge), with the size under it.
@@ -407,6 +434,10 @@ private final class RegionView: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
-        if event.keyCode == 53 { capture.cancel() } else { super.keyDown(with: event) }
+        switch event.keyCode {
+        case 53: capture.cancel()                       // Esc
+        case 36, 76: capture.captureLastArea()          // Return, keypad Enter
+        default: super.keyDown(with: event)
+        }
     }
 }
