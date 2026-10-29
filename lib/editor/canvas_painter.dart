@@ -43,7 +43,8 @@ class CanvasPainter extends CustomPainter {
     final img = state.image;
     final imageRect = Rect.fromLTWH(0, 0, img.width.toDouble(), img.height.toDouble());
     canvas.drawRect(imageRect, Paint()..color = state.background); // canvas colour behind the image
-    canvas.drawImage(img, Offset.zero, Paint());
+    // Smoothed when drawn smaller (GIFs at point size, zoomed-out editor): unfiltered drops pixels, jagged text
+    canvas.drawImage(img, Offset.zero, Paint()..filterQuality = FilterQuality.medium);
 
     // Blur patches first, then spotlight dimming, then the rest in order.
     final spotlights = <(Rect, double)>[];
