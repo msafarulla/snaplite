@@ -155,6 +155,10 @@ no code needed.
   arrows** (a Curve slider; arrowheads at both ends if you like), lines (curved or dashed), **braces** (around
   the object before them, with a label), graphs (type `x^2`, `sin(x)`, `sqrt(x)`…), number lines and images,
   then **drag** them on the 16:9 stage (the dots resize, or move an arrow's ends).
+- **Draw** anything freehand: drag on the stage and the stroke becomes a smooth path, with an arrowhead (or
+  closed, if you end where you began). Its entrance can be **Fourier Draw**: a chain of spinning circles
+  (epicycles) traces your drawing, 3Blue1Brown style; choose how many circles and whether they show.
+  **Trace with a Dot** runs a glowing dot along any line, and **Passing Flash** sends light along it.
 - **Animate** each one in the panel on the right:
   - **enters** with Write, Create, Fade In (from any side), Grow, Grow Arrow, Spin In, Draw Border Then Fill,
     Letter by Letter, or **Transform / Fade Transform from Previous** (morphs the object before it into this

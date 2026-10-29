@@ -76,7 +76,9 @@ class ManimDoc {
       ..writeln('# Made with SnapNow Manim Studio. Edit freely, or keep editing on the stage.')
       ..writeln('from manim import *')
       ..writeln('from math import *')
-      ..writeln()
+      ..writeln();
+    if (items.any((i) => i.kind == MKind.path && i.enter == MEnter.fourier)) out.write(_fourierHelper);
+    out
       ..writeln()
       ..writeln('class $className(${camera ? 'MovingCameraScene' : 'Scene'}):')
       ..writeln('    def construct(self):')
@@ -96,6 +98,7 @@ class ManimDoc {
 
     for (final group in groups) {
       final enters = <String>[];
+      final traceDots = <String>[];
       var runTime = 0.0;
       for (final idx in group) {
         final i = items[idx];
@@ -112,6 +115,18 @@ class ManimDoc {
             ? '${i.enter == MEnter.transform ? 'ReplacementTransform' : 'FadeTransform'}(m${items[src].id}, $v)'
             : _enter(i, v);
         if (src != null) gone.add(items[src].id);
+        if (i.enter == MEnter.fourier && i.kind == MKind.path && i.points.length >= 2) {
+          // Circles on circles trace the drawing, then hand over to the drawing itself (arrowhead and all)
+          out
+            ..writeln('        ${v}_trace = snapnow_fourier(self, $v, ${i.fourierN}, ${n(i.runTime)}, ${_hex(i.color)}, '
+                '${n(i.stroke)}, ${i.closed ? 'True' : 'False'}, ${i.showCircles ? 'True' : 'False'})')
+            ..writeln('        self.play(FadeTransform(${v}_trace, $v), run_time=0.4)');
+          continue;
+        }
+        if (i.enter == MEnter.traceDot && i.kind != MKind.image) {
+          out.writeln('        ${v}_dot = Dot(radius=0.08, color=${_hex(i.color)}).set_glow_factor(1)');
+          traceDots.add('${v}_dot');
+        }
         if (anim == null) {
           out.writeln('        self.add($v)');
         } else {
@@ -120,6 +135,7 @@ class ManimDoc {
         }
       }
       if (enters.isNotEmpty) out.writeln('        self.play(${enters.join(', ')}, run_time=${n(runTime)})');
+      if (traceDots.isNotEmpty) out.writeln('        self.play(${[for (final d in traceDots) 'FadeOut($d)'].join(', ')}, run_time=0.3)');
       var wait = 0.0;
       for (final idx in group) {
         final i = items[idx];
@@ -224,10 +240,74 @@ class ManimDoc {
           lines.add('$v = VGroup(${v}_brace, $label.next_to(${v}_brace, $dir))');
         }
         return lines;
+      case MKind.path:
+        final pts = [for (final q in i.points) i.pos + q];
+        if (pts.length < 2) return ['$v = Dot(${p(i.pos)}, radius=0.02, color=$c)'];
+        if (i.closed) pts.add(pts.first);
+        return [
+          '$v = TipableVMobject(color=$c, stroke_width=${n(i.stroke)})',
+          '$v.set_points_smoothly([${pts.map(p).join(', ')}])',
+          if (i.arrowTip && !i.closed) '$v.add_tip(tip_length=0.25, tip_width=0.25)',
+        ];
       case MKind.image:
         return ['$v = ImageMobject("image_${i.id}.png").scale_to_fit_width(${n(i.size.width)}).move_to(${p(i.pos)})'];
     }
   }
+
+  /// The Fourier drawing, 3Blue1Brown style: the path sampled into complex numbers, its discrete Fourier
+  /// transform as rotating vectors (largest first, ordered by frequency), drawn tip to tail with their circles
+  /// while the last tip leaves a trace. An open path is mirrored so it closes, and only its first half is drawn.
+  static const _fourierHelper = '''
+def snapnow_fourier(scene, path, n_vectors, run_time, color, stroke_width, closed, show_circles):
+    samples = 400
+    z = np.array([complex(*path.point_from_proportion(a / (samples - 1))[:2]) for a in range(samples)])
+    if not closed:
+        z = np.concatenate([z, z[::-1]])
+    total = len(z)
+    coefs = np.fft.fft(z) / total
+    freqs = np.fft.fftfreq(total, d=1 / total)
+    keep = sorted(np.argsort(-np.abs(coefs))[:n_vectors], key=lambda k: (abs(freqs[k]), -freqs[k]))
+    end = 1.0 if closed else 0.5
+    t = ValueTracker(0)
+
+    def chain():
+        s = 0j
+        pts = [s]
+        for k in keep:
+            s += coefs[k] * np.exp(2j * np.pi * freqs[k] * t.get_value())
+            pts.append(s)
+        return pts
+
+    def p3(c):
+        return np.array([c.real, c.imag, 0])
+
+    def draw_arms(m):
+        c = chain()
+        m.become(VGroup(*[Line(p3(c[i]), p3(c[i + 1]), stroke_width=1.5, stroke_color=GREY_B) for i in range(len(c) - 1)]))
+
+    def draw_circles(m):
+        c = chain()
+        m.become(VGroup(*[Circle(radius=abs(coefs[k]), stroke_width=1.2, stroke_color=BLUE_C, stroke_opacity=0.75)
+                          .move_to(p3(c[i])) for i, k in enumerate(keep)]))
+
+    arms = VGroup()
+    arms.add_updater(draw_arms)
+    circles = VGroup()
+    if show_circles:
+        circles.add_updater(draw_circles)
+    tip = Dot(radius=0.001)
+    tip.add_updater(lambda m: m.move_to(p3(chain()[-1])))
+    tip.update()
+    trace = TracedPath(tip.get_center, stroke_color=color, stroke_width=stroke_width)
+    scene.add(circles, arms, tip, trace)
+    scene.play(t.animate.set_value(end), run_time=run_time, rate_func=linear)
+    for m in (circles, arms, tip):
+        m.clear_updaters()
+    scene.play(FadeOut(circles), FadeOut(arms), run_time=0.5)
+    scene.remove(tip)
+    return trace
+
+''';
 
   static String? _enter(MItem i, String v) {
     final vector = i.kind == MKind.image; // images can't be drawn stroke by stroke
@@ -246,6 +326,8 @@ class ManimDoc {
       MEnter.spinIn => 'SpinInFromNothing($v)',
       MEnter.drawBorder => vector ? 'FadeIn($v)' : 'DrawBorderThenFill($v)',
       MEnter.letterByLetter => text ? 'AddTextLetterByLetter($v)' : 'Write($v)',
+      MEnter.fourier => vector ? 'FadeIn($v)' : 'Create($v)', // a Fourier drawing plays on its own (see code())
+      MEnter.traceDot => vector ? 'FadeIn($v)' : 'Create($v), MoveAlongPath(${v}_dot, $v)',
       MEnter.transform || MEnter.fadeTransform => 'FadeIn($v)', // no earlier object to morph from
       MEnter.none => null,
     };
@@ -258,6 +340,8 @@ class ManimDoc {
         MEmphasis.flash => 'Flash($v, color=${_hex(i.color)})',
         MEmphasis.focusOn => 'FocusOn($v)',
         MEmphasis.wave => i.kind == MKind.image ? 'Wiggle($v)' : 'ApplyWave($v)',
+        MEmphasis.passingFlash => i.kind == MKind.image ? 'Indicate($v)'
+            : 'ShowPassingFlash($v.copy().set_color(YELLOW).set_stroke(width=${(i.stroke * 2).toStringAsFixed(1)}), time_width=0.4, run_time=1.2)',
         MEmphasis.none => null,
       };
 
@@ -319,7 +403,7 @@ class ManimDoc {
 enum MKind {
   text('Text'), math('Math'), rect('Rectangle'), circle('Circle'), triangle('Triangle'), polygon('Polygon'),
   star('Star'), arrow('Arrow'), line('Line'), dot('Dot'), brace('Brace'), graph('Graph'), numberLine('Number Line'),
-  image('Image');
+  path('Drawing'), image('Image');
 
   final String label;
   const MKind(this.label);
@@ -329,6 +413,7 @@ enum MEnter {
   write('Write'), create('Create'), fadeIn('Fade In'), fadeInUp('Fade In from Below'), fadeInDown('Fade In from Above'),
   fadeInLeft('Fade In from the Right'), fadeInRight('Fade In from the Left'), grow('Grow from Centre'),
   growFromEdge('Grow from Edge'), growArrow('Grow Arrow'), spinIn('Spin In'), drawBorder('Draw Border, Then Fill'),
+  fourier('Fourier Draw (epicycles)'), traceDot('Trace with a Dot'),
   letterByLetter('Letter by Letter'), transform('Transform from Previous'), fadeTransform('Fade Transform from Previous'),
   none('Appear');
 
@@ -338,7 +423,7 @@ enum MEnter {
 
 enum MEmphasis {
   none('None'), indicate('Indicate'), circumscribe('Circumscribe'), wiggle('Wiggle'), flash('Flash'), focusOn('Focus On'),
-  wave('Wave');
+  wave('Wave'), passingFlash('Passing Flash');
 
   final String label;
   const MEmphasis(this.label);
@@ -404,6 +489,10 @@ class MItem {
   double fill; // 0…1
   double stroke;
   double curve; // arrow / line bend, degrees (0 = straight; negative bends the other way)
+  List<Offset> points; // a drawing's path, relative to pos
+  bool arrowTip, closed; // a drawing ends in an arrowhead / joins back to its start
+  int fourierN; // circles in a Fourier drawing
+  bool showCircles;
   bool doubleHead, dashed;
   int sides; // polygon sides, star points
   MBraceDir braceDir;
@@ -435,6 +524,11 @@ class MItem {
     this.fill = 0,
     this.stroke = 4,
     this.curve = 0,
+    this.points = const [],
+    this.arrowTip = false,
+    this.closed = false,
+    this.fourierN = 60,
+    this.showCircles = true,
     this.doubleHead = false,
     this.dashed = false,
     this.sides = 5,
@@ -461,6 +555,7 @@ class MItem {
         MKind.text || MKind.math => MEnter.write,
         MKind.dot => MEnter.grow,
         MKind.arrow => MEnter.growArrow,
+        MKind.path => MEnter.fourier,
         MKind.image => MEnter.fadeIn,
         MKind.brace => MEnter.grow,
         _ => MEnter.create,
@@ -474,6 +569,7 @@ class MItem {
       MKind.graph => Formula.toPython(text) == null ? 'Graph (formula not valid)' : 'Graph: y = $text',
       MKind.brace when text.isNotEmpty => 'Brace: ${text.split('\n').first}',
       MKind.arrow when curve.abs() >= 1 => 'Curved Arrow',
+      MKind.path => arrowTip ? 'Drawn Arrow' : 'Drawing',
       MKind.polygon => '$sides-sided Polygon',
       MKind.star => '$sides-point Star',
       _ => kind.label,
@@ -484,7 +580,8 @@ class MItem {
   Map<String, Object?> toJson() => {
         'id': id, 'kind': kind.name, 'pos': [pos.dx, pos.dy], 'end': [end.dx, end.dy], 'size': [size.width, size.height],
         'text': text, 'font': font, 'fontSize': fontSize, 'color': color.toARGB32(), 'fill': fill, 'stroke': stroke,
-        'curve': curve, 'doubleHead': doubleHead, 'dashed': dashed, 'sides': sides, 'braceDir': braceDir.name,
+        'curve': curve, 'points': [for (final q in points) [q.dx, q.dy]], 'arrowTip': arrowTip, 'closed': closed,
+        'fourierN': fourierN, 'showCircles': showCircles, 'doubleHead': doubleHead, 'dashed': dashed, 'sides': sides, 'braceDir': braceDir.name,
         'braceMath': braceMath, 'graph': graph.toJson(), if (image != null) 'image': base64Encode(image!),
         'enter': enter.name, 'emphasis': emphasis.name, 'motion': motion.name, 'moveBy': [moveBy.dx, moveBy.dy],
         'rotateBy': rotateBy, 'scaleBy': scaleBy, 'toColor': toColor.toARGB32(), 'exit': exit.name, 'rate': rate.name,
@@ -511,6 +608,11 @@ class MItem {
       fill: d('fill', 0),
       stroke: d('stroke', 4),
       curve: d('curve', 0),
+      points: [for (final q in (j['points'] as List? ?? const [])) if (q is List && q.length == 2) Offset((q[0] as num).toDouble(), (q[1] as num).toDouble())],
+      arrowTip: j['arrowTip'] == true,
+      closed: j['closed'] == true,
+      fourierN: (j['fourierN'] as int? ?? 60).clamp(3, 300),
+      showCircles: j['showCircles'] != false,
       doubleHead: j['doubleHead'] == true,
       dashed: j['dashed'] == true,
       sides: (j['sides'] as int? ?? 5).clamp(3, 12),

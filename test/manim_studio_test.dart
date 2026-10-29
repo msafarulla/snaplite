@@ -65,4 +65,30 @@ void main() {
     expect(find.text('Zoom the camera to it'), findsOneWidget);
     expect(s.doc.code(), contains('CurvedArrow('));
   });
+
+  testWidgets('Draw: a stroke on the stage becomes a drawing (arrowhead, Fourier Draw)', (t) async {
+    final s = await pump(t);
+    await t.tap(find.byKey(const ValueKey('studio-draw')));
+    await t.pump();
+    expect(s.drawMode, isTrue);
+    final stage = t.getRect(find.byKey(const ValueKey('studio-stage')));
+    final g = await t.startGesture(stage.center - const Offset(200, 0));
+    for (var k = 1; k <= 40; k++) {
+      await g.moveTo(stage.center + Offset(-200 + k * 10.0, 60 * (k.isEven ? 1 : 0.6) * (k % 8 < 4 ? 1 : -1)));
+      await t.pump();
+    }
+    await g.up();
+    await t.pump();
+    final drawing = s.doc.items.last;
+    expect(drawing.kind, MKind.path);
+    expect(drawing.points.length, inInclusiveRange(3, 120), reason: 'smoothed and thinned');
+    expect(drawing.arrowTip, isTrue, reason: 'an open stroke ends in an arrowhead');
+    expect(drawing.enter, MEnter.fourier);
+    expect(find.text('Circles'), findsOneWidget, reason: 'Fourier settings show');
+    final code = s.doc.code();
+    expect(code, contains('def snapnow_fourier('));
+    expect(code, contains('snapnow_fourier(self, m${drawing.id},'));
+    expect(code, contains('add_tip('));
+    await t.pump(const Duration(seconds: 1)); // the auto-save
+  });
 }

@@ -49,6 +49,8 @@ class ManimStudioPageState extends State<ManimStudioPage> {
   late ManimDoc doc;
   late String path;
   int? selected;
+  bool drawMode = false; // the Draw tool: dragging on the stage draws a path
+  List<Offset>? _trail; // the path being drawn, in scene units
   final _images = <int, ui.Image>{}; // decoded for the stage
   ({String path, String version})? _manim;
   bool _looked = false, _latex = true, _rendering = false, _hd = false, _showLog = false;
@@ -177,6 +179,9 @@ class ManimStudioPageState extends State<ManimStudioPage> {
         item = MItem(id: id, kind: kind, pos: at, size: const Size(0.16, 0.16), color: palette[3]);
       case MKind.graph:
         item = MItem(id: id, kind: kind, text: 'x^2 / 2', pos: Offset.zero, size: const Size(8, 5), color: palette[1]);
+      case MKind.path:
+        setState(() { drawMode = true; selected = null; });
+        return;
       case MKind.image:
         final r = await FilePicker.pickFiles(dialogTitle: 'Add Image', type: FileType.image, withData: true);
         final bytes = r?.files.single.bytes;
@@ -185,6 +190,46 @@ class ManimStudioPageState extends State<ManimStudioPage> {
         _decodeImage(item);
     }
     changed(() { doc.items.add(item); selected = id; });
+  }
+
+  /// A finished stroke becomes a Drawing: smoothed (each point averaged with its neighbours), thinned to the
+  /// points that matter, and stored around its centre so it moves as one.
+  void _finishDrawing() {
+    final raw = _trail;
+    _trail = null;
+    if (raw == null || raw.length < 3) { setState(() {}); return; }
+    const k = 2;
+    final smooth = [
+      for (var a = 0; a < raw.length; a++)
+        if (a == 0 || a == raw.length - 1) raw[a]
+        else () {
+          var sum = Offset.zero, count = 0;
+          for (var b = math.max(0, a - k); b <= math.min(raw.length - 1, a + k); b++) { sum += raw[b]; count++; }
+          return sum / count.toDouble();
+        }(),
+    ];
+    var eps = 0.015;
+    var kept = _simplify(smooth, eps);
+    while (kept.length > 120) { eps *= 1.5; kept = _simplify(smooth, eps); }
+    final centre = kept.fold(Offset.zero, (a, b) => a + b) / kept.length.toDouble();
+    final closed = (kept.first - kept.last).distance < 0.35 && kept.length > 6; // ended near where it began
+    final id = doc.newId();
+    final item = MItem(id: id, kind: MKind.path, pos: centre, points: [for (final q in kept) q - centre], closed: closed,
+        arrowTip: !closed, color: palette[1], stroke: 5, runTime: 3);
+    changed(() { doc.items.add(item); selected = id; });
+  }
+
+  static List<Offset> _simplify(List<Offset> pts, double eps) {
+    if (pts.length < 3) return pts;
+    final a = pts.first, b = pts.last, ab = b - a, len = ab.distance;
+    var far = 0, best = 0.0;
+    for (var i = 1; i < pts.length - 1; i++) {
+      final ap = pts[i] - a;
+      final d = len == 0 ? ap.distance : (ab.dx * ap.dy - ab.dy * ap.dx).abs() / len;
+      if (d > best) { best = d; far = i; }
+    }
+    if (best <= eps) return [a, b];
+    return [..._simplify(pts.sublist(0, far + 1), eps)..removeLast(), ..._simplify(pts.sublist(far), eps)];
   }
 
   void delete() {
@@ -269,7 +314,7 @@ class ManimStudioPageState extends State<ManimStudioPage> {
         const SingleActivator(LogicalKeyboardKey.backspace): delete,
         const SingleActivator(LogicalKeyboardKey.keyD, meta: true): duplicate,
         const SingleActivator(LogicalKeyboardKey.enter, meta: true): render,
-        const SingleActivator(LogicalKeyboardKey.escape): () => setState(() => selected = null),
+        const SingleActivator(LogicalKeyboardKey.escape): () => setState(() { selected = null; drawMode = false; }),
       },
       child: Focus(
         focusNode: _focus,
@@ -328,6 +373,20 @@ class ManimStudioPageState extends State<ManimStudioPage> {
             child: const Padding(
               padding: EdgeInsets.symmetric(horizontal: 9, vertical: 4),
               child: Column(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.redo, size: 20), Text('Curved', style: TextStyle(fontSize: 10.5))]),
+            ),
+          ),
+        ),
+        Tooltip(
+          message: 'Draw: drag on the stage to draw a path (an arrow, a shape, anything); Esc to stop',
+          child: InkWell(
+            key: const ValueKey('studio-draw'),
+            borderRadius: BorderRadius.circular(8),
+            onTap: () => setState(() { drawMode = !drawMode; selected = null; }),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+              decoration: BoxDecoration(
+                color: drawMode ? scheme.primaryContainer : null, borderRadius: BorderRadius.circular(8)),
+              child: const Column(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.gesture, size: 20), Text('Draw', style: TextStyle(fontSize: 10.5))]),
             ),
           ),
         ),
@@ -398,15 +457,23 @@ class ManimStudioPageState extends State<ManimStudioPage> {
           aspectRatio: 16 / 9,
           child: LayoutBuilder(builder: (context, c) {
             _stageSize = c.biggest;
-            return GestureDetector(
+            return MouseRegion(
+              cursor: drawMode ? SystemMouseCursors.precise : MouseCursor.defer,
+              child: GestureDetector(
               key: const ValueKey('studio-stage'),
-              onTapDown: (d) => setState(() => selected = _hit(d.localPosition)?.$1),
+              onTapDown: (d) { if (!drawMode) setState(() => selected = _hit(d.localPosition)?.$1); },
               onPanStart: (d) {
+                if (drawMode) { setState(() => _trail = [_toScene(d.localPosition)]); return; }
                 final h = _hit(d.localPosition);
                 if (h == null) return;
                 setState(() { selected = h.$1; _dragId = h.$1; _dragPart = h.$2; _dragLast = d.localPosition; });
               },
               onPanUpdate: (d) {
+                if (_trail != null) {
+                  final q = _toScene(d.localPosition);
+                  if ((q - _trail!.last).distance * _ppu >= 2) setState(() => _trail!.add(q));
+                  return;
+                }
                 final i = doc.items.where((x) => x.id == _dragId).firstOrNull;
                 if (i == null) return;
                 final delta = (d.localPosition - _dragLast) / _ppu;
@@ -428,14 +495,19 @@ class ManimStudioPageState extends State<ManimStudioPage> {
                   }
                 });
               },
-              onPanEnd: (_) { _dragId = null; changed(); },
+              onPanEnd: (_) {
+                if (_trail != null) return _finishDrawing();
+                _dragId = null;
+                changed();
+              },
               child: ClipRect(
                 child: CustomPaint(
                   size: c.biggest,
-                  painter: _StagePainter(doc: doc, selected: selected, images: _images, toPx: _toPx, bounds: _bounds, ppu: _ppu),
+                  painter: _StagePainter(doc: doc, selected: selected, images: _images, toPx: _toPx, bounds: _bounds, ppu: _ppu,
+                      trail: _trail),
                 ),
               ),
-            );
+            ));
           }),
         ),
       ),
@@ -452,8 +524,8 @@ class ManimStudioPageState extends State<ManimStudioPage> {
     }
     for (final i in doc.items.reversed) {
       if (_bounds(i).inflate(6).contains(p)) {
-        if (i.kind == MKind.arrow || i.kind == MKind.line) {
-          final pts = _StagePainter.curvePoints(i).map(_toPx).toList();
+        if (i.kind == MKind.arrow || i.kind == MKind.line || i.kind == MKind.path) {
+          final pts = (i.kind == MKind.path ? _StagePainter.pathPoints(i) : _StagePainter.curvePoints(i)).map(_toPx).toList();
           var near = false;
           for (var k = 1; k < pts.length && !near; k++) {
             near = _distToSegment(p, pts[k - 1], pts[k]) <= 10;
@@ -492,6 +564,10 @@ class ManimStudioPageState extends State<ManimStudioPage> {
         return pts.fold(Rect.fromPoints(pts.first, pts.first), (r, q) => r.expandToInclude(Rect.fromPoints(q, q)));
       case MKind.polygon || MKind.star:
         return Rect.fromCenter(center: c, width: i.size.width * _ppu, height: i.size.width * _ppu);
+      case MKind.path:
+        final pts = _StagePainter.pathPoints(i).map(_toPx).toList();
+        if (pts.isEmpty) return Rect.fromCenter(center: c, width: 10, height: 10);
+        return pts.fold(Rect.fromPoints(pts.first, pts.first), (r, q) => r.expandToInclude(Rect.fromPoints(q, q)));
       case MKind.brace:
         return _StagePainter.braceRect(doc, i, _bounds, _ppu) ?? Rect.fromCenter(center: c, width: 60, height: 20);
       case MKind.image:
@@ -665,6 +741,14 @@ class ManimStudioPageState extends State<ManimStudioPage> {
             check('Label is LaTeX', i.braceMath, (v) => i.braceMath = v),
             slider('Label size', i.fontSize, 12, 96, (v) => i.fontSize = v, digits: 0),
           ]);
+        case MKind.path:
+          kids.addAll([
+            slider('Line', i.stroke, 1, 16, (v) => i.stroke = v),
+            check('Closed (joins back to the start)', i.closed, (v) => i.closed = v),
+            if (!i.closed) check('Arrowhead at the end', i.arrowTip, (v) => i.arrowTip = v),
+            Text('Tip: set "Enters with" to Fourier Draw for spinning circles that trace it.',
+                style: TextStyle(fontSize: 11.5, color: scheme.onSurfaceVariant)),
+          ]);
         case MKind.numberLine:
           kids.addAll([
             Row(children: [
@@ -710,11 +794,19 @@ class ManimStudioPageState extends State<ManimStudioPage> {
       final index = doc.items.indexOf(i);
       final transformOk = doc.transformSource(index) != null;
       final transforms = {MEnter.transform, MEnter.fadeTransform};
-      final enter = transforms.contains(i.enter) && !transformOk ? MEnter.fadeIn : i.enter;
+      final enter = (transforms.contains(i.enter) && !transformOk) || (i.enter == MEnter.fourier && i.kind != MKind.path)
+          ? MEnter.fadeIn : i.enter;
       kids.addAll([
         head('Animation'),
-        dropdown('Enters with', enter, [for (final e in MEnter.values) if (!transforms.contains(e) || transformOk) e],
-            (e) => e.label, (e) => i.enter = e),
+        dropdown('Enters with', enter, [
+          for (final e in MEnter.values)
+            if ((!transforms.contains(e) || transformOk) && (e != MEnter.fourier || i.kind == MKind.path) &&
+                (e != MEnter.traceDot || i.kind != MKind.image)) e,
+        ], (e) => e.label, (e) => i.enter = e),
+        if (i.enter == MEnter.fourier && i.kind == MKind.path) ...[
+          slider('Circles', i.fourierN.toDouble(), 3, 150, (v) => i.fourierN = v.round(), digits: 0),
+          check('Show the circles', i.showCircles, (v) => i.showCircles = v),
+        ],
         if (index > 0) check('Start together with the previous one', i.withPrevious, (v) => i.withPrevious = v),
         dropdown('Easing', i.rate, MRate.values, (r) => r.label, (r) => i.rate = r),
         slider('Run time', i.runTime, 0.2, 5, (v) => i.runTime = v),
@@ -783,8 +875,12 @@ class _StagePainter extends CustomPainter {
   final Offset Function(Offset) toPx;
   final Rect Function(MItem) bounds; // the stage's own (a brace wraps another object's box)
   final double ppu;
+  final List<Offset>? trail; // the stroke being drawn (scene units)
   _StagePainter({required this.doc, required this.selected, required this.images, required this.toPx, required this.bounds,
-      required this.ppu});
+      required this.ppu, this.trail});
+
+  /// A drawing's points on the stage, in scene units (closed ones end where they began).
+  static List<Offset> pathPoints(MItem i) => [for (final q in i.points) i.pos + q, if (i.closed && i.points.isNotEmpty) i.pos + i.points.first];
 
   /// An arrow's or line's path in scene units: straight, or the arc Manim draws for `curve` degrees
   /// (ArcBetweenPoints: positive angles turn counter-clockwise from the start).
@@ -922,6 +1018,17 @@ class _StagePainter extends CustomPainter {
             };
             tp.paint(canvas, at);
           }
+        case MKind.path:
+          final pts = pathPoints(i).map(toPx).toList();
+          if (pts.length < 2) break;
+          final path = Path()..moveTo(pts.first.dx, pts.first.dy);
+          for (var k = 1; k < pts.length - 1; k++) {
+            final mid = (pts[k] + pts[k + 1]) / 2; // midpoint quadratic smoothing, like Manim's smooth points
+            path.quadraticBezierTo(pts[k].dx, pts[k].dy, mid.dx, mid.dy);
+          }
+          path.lineTo(pts.last.dx, pts.last.dy);
+          canvas.drawPath(path, stroke..strokeJoin = StrokeJoin.round);
+          if (i.arrowTip && !i.closed) _head(canvas, pts.last, pts[pts.length - 2], i.color);
         case MKind.numberLine:
           final g = i.graph;
           final w = i.size.width * ppu;
@@ -950,6 +1057,15 @@ class _StagePainter extends CustomPainter {
               Rect.fromCenter(center: c, width: w, height: h), Paint()..filterQuality = FilterQuality.medium);
       }
       if (i.id == selected) _selection(canvas, i, c);
+    }
+    final t = trail;
+    if (t != null && t.length > 1) {
+      canvas.drawPath(Path()..addPolygon(t.map(toPx).toList(), false), Paint()
+        ..color = const Color(0xFF58C4DD)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round);
     }
   }
 
@@ -991,6 +1107,8 @@ class _StagePainter extends CustomPainter {
       case MKind.brace:
         final r = braceRect(doc, i, bounds, ppu);
         if (r != null) canvas.drawRect(r.inflate(4), accent);
+      case MKind.path:
+        canvas.drawRect(bounds(i).inflate(6), accent);
       case MKind.polygon || MKind.star:
         final r = Rect.fromCenter(center: c, width: i.size.width * ppu, height: i.size.width * ppu);
         canvas..drawRect(r.inflate(3), accent)..drawCircle(r.bottomRight, 5, dot);
