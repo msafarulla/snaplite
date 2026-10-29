@@ -21,6 +21,7 @@ final class RegionCapture {
     private var completion: ((URL?) -> Void)?
     private var url: URL!
     private var sound = false
+    private var previousApp: NSRunningApplication?   // where Esc returns to
 
     var mouse = NSEvent.mouseLocation
     var dragStart: CGPoint?
@@ -33,6 +34,8 @@ final class RegionCapture {
         capture.url = url
         capture.sound = sound
         capture.completion = completion
+        let front = NSWorkspace.shared.frontmostApplication
+        capture.previousApp = front?.processIdentifier == ProcessInfo.processInfo.processIdentifier ? nil : front
         current = capture
         Task { @MainActor in
             // ScreenCaptureKit runs in SnapNow itself, so it has SnapNow's Screen Recording permission (a
@@ -135,7 +138,7 @@ final class RegionCapture {
 
     private func show() {
         for f in frozen {
-            let window = KeyWindow(contentRect: f.screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
+            let window = KeyPanel(contentRect: f.screen.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
             window.level = .screenSaver
             window.isOpaque = true
             window.backgroundColor = .black   // never a white flash if the frozen screen were missing
@@ -156,7 +159,8 @@ final class RegionCapture {
             overlays.append(window)
             views.append(view)
         }
-        NSApp.activate(ignoringOtherApps: true)
+        // No NSApp.activate: the panels take the keys (Esc) without activating SnapNow, so an open editor stays
+        // where it is and Esc leaves you in the app you were using
         let screen = screenUnderMouse()
         if let i = frozen.firstIndex(where: { $0.screen == screen }) {
             overlays[i].makeKey()
@@ -203,7 +207,13 @@ final class RegionCapture {
         finish(save(r, from: f) ? url : nil)
     }
 
-    func cancel() { finish(nil) }
+    /// Esc: closes the overlay and goes back to the app you were in (starting from the menu bar panel
+    /// had made SnapNow active).
+    func cancel() {
+        let back = previousApp
+        finish(nil)
+        if NSApp.isActive { back?.activate() }
+    }
 
     private func save(_ r: CGRect, from f: Frozen) -> Bool {
         let s = f.scale, sf = f.screen.frame
@@ -231,8 +241,8 @@ final class RegionCapture {
     }
 }
 
-/// Borderless windows can't become key on their own; the overlay must, to get Esc.
-private final class KeyWindow: NSWindow {
+/// A non-activating panel that can still become key: it gets Esc while the app you were in stays active.
+private final class KeyPanel: NSPanel {
     override var canBecomeKey: Bool { true }
 }
 
