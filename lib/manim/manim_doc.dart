@@ -4,8 +4,8 @@ import 'dart:typed_data';
 import 'dart:ui';
 
 /// A Manim Studio project: a 16:9 stage (Manim's 14.222 × 8 frame, origin in the middle, y up) holding
-/// objects that appear one after another in timeline order. Saved as JSON (.snapmanim), images included,
-/// so a project still works after it's moved. [code] turns it into a Manim Community scene.
+/// objects that play in timeline order (or together with the one before). Saved as JSON (.snapmanim),
+/// images included, so a project still works after it's moved. [code] turns it into a Manim Community scene.
 class ManimDoc {
   static const frameW = 128 / 9, frameH = 8.0; // 14.222 × 8
   static const className = 'SnapStudio';
@@ -23,7 +23,7 @@ class ManimDoc {
   int newId() => _nextId++;
 
   Map<String, Object?> toJson() => {
-        'format': 'snapnow-manim', 'version': 1,
+        'format': 'snapnow-manim', 'version': 2,
         'background': background.toARGB32(), 'fadeOutAtEnd': fadeOutAtEnd, 'endHold': endHold,
         'items': [for (final i in items) i.toJson()],
       };
@@ -44,106 +44,107 @@ class ManimDoc {
           if (i.kind == MKind.image && i.image != null) 'image_${i.id}.png': i.image!,
       };
 
-  bool get usesMath => items.any((i) => i.kind == MKind.math);
+  bool get usesMath => items.any((i) => i.kind == MKind.math || (i.kind == MKind.brace && i.text.isNotEmpty && i.braceMath));
 
-  /// The text or math object a "Transform from previous" morphs from: the nearest one before `index`.
+  /// The object a Transform morphs from: the nearest earlier one still on screen (not a brace's own).
   int? transformSource(int index) {
     for (var j = index - 1; j >= 0; j--) {
-      if (items[j].kind == MKind.text || items[j].kind == MKind.math) return j;
+      if (items[j].exit == MExit.none) return j;
     }
     return null;
   }
 
+  /// What a Brace wraps: the nearest earlier object that isn't a brace.
+  int? braceTarget(int index) {
+    for (var j = index - 1; j >= 0; j--) {
+      if (items[j].kind != MKind.brace) return j;
+    }
+    return null;
+  }
+
+  bool get usesCamera => items.any((i) => i.zoom);
+
   /// The Python source (Manim Community). Strings are JSON-escaped literals, LaTeX raw strings with quotes
   /// escaped, and graph formulas only pass [Formula.toPython] (math only), so no other Python gets in.
-  /// `latex`: whether LaTeX is installed; without it graphs leave out their axis numbers (Manim sets
-  /// numbers with LaTeX).
+  /// `latex`: whether LaTeX is installed; without it graphs and number lines leave out their numbers (Manim
+  /// sets numbers with LaTeX).
   String code({bool latex = true}) {
     String n(double v) => v.toStringAsFixed(3);
     String p(Offset o) => '[${n(o.dx)}, ${n(o.dy)}, 0]';
+    final camera = usesCamera;
     final out = StringBuffer()
       ..writeln('# Made with SnapNow Manim Studio. Edit freely, or keep editing on the stage.')
       ..writeln('from manim import *')
       ..writeln('from math import *')
       ..writeln()
       ..writeln()
-      ..writeln('class $className(Scene):')
+      ..writeln('class $className(${camera ? 'MovingCameraScene' : 'Scene'}):')
       ..writeln('    def construct(self):')
       ..writeln('        self.camera.background_color = ${_hex(background)}');
-    final removed = <int>{}; // replaced by a transform
+    if (camera) out.writeln('        self.camera.frame.save_state()');
+
+    final gone = <int>{}; // replaced by a transform, or exited
+    // Objects that start together (the first, then each "with previous" after it) play as one group
+    final groups = <List<int>>[];
     for (var idx = 0; idx < items.length; idx++) {
-      final i = items[idx];
-      final v = 'm${i.id}';
-      final c = _hex(i.color);
-      final lines = <String>[];
-      switch (i.kind) {
-        case MKind.text:
-          lines.add('$v = Text(${jsonEncode(i.text)}, font=${jsonEncode(i.font)}, font_size=${n(i.fontSize)}, color=$c)'
-              '.move_to(${p(i.pos)})');
-        case MKind.math:
-          lines.add('$v = MathTex(r"${_latex(i.text)}", font_size=${n(i.fontSize)}, color=$c).move_to(${p(i.pos)})');
-        case MKind.rect:
-          lines.add('$v = Rectangle(width=${n(i.size.width)}, height=${n(i.size.height)}, color=$c, '
-              'stroke_width=${n(i.stroke)}, fill_color=$c, fill_opacity=${n(i.fill)}).move_to(${p(i.pos)})');
-        case MKind.circle:
-          lines.add('$v = Ellipse(width=${n(i.size.width)}, height=${n(i.size.height)}, color=$c, '
-              'stroke_width=${n(i.stroke)}, fill_color=$c, fill_opacity=${n(i.fill)}).move_to(${p(i.pos)})');
-        case MKind.arrow:
-          lines.add('$v = Arrow(${p(i.pos)}, ${p(i.end)}, buff=0, color=$c, stroke_width=${n(i.stroke)})');
-        case MKind.line:
-          lines.add('$v = Line(${p(i.pos)}, ${p(i.end)}, color=$c, stroke_width=${n(i.stroke)})');
-        case MKind.dot:
-          lines.add('$v = Dot(${p(i.pos)}, radius=${n(i.size.width / 2)}, color=$c)');
-        case MKind.graph:
-          final f = Formula.toPython(i.text) ?? 'x';
-          final g = i.graph;
-          lines.add('${v}_axes = Axes(x_range=[${n(g.xMin)}, ${n(g.xMax)}, ${n(g.xStep)}], '
-              'y_range=[${n(g.yMin)}, ${n(g.yMax)}, ${n(g.yStep)}], x_length=${n(i.size.width)}, '
-              'y_length=${n(i.size.height)}, tips=False, axis_config={"include_numbers": ${latex ? 'True' : 'False'}, "font_size": 20})'
-              '.move_to(${p(i.pos)})');
-          // Manim doesn't clip a plot to the axes, so only the stretches of x where y stays in range are drawn
-          final runs = _inRange(i.text, g);
-          lines.add('${v}_plot = VGroup(${[
-            for (final (a, b) in runs)
-              '${v}_axes.plot(lambda x: $f, x_range=[${n(a)}, ${n(b)}], color=$c, stroke_width=${n(i.stroke)})'
-          ].join(', ')})');
-          lines.add('$v = VGroup(${v}_axes, ${v}_plot)');
-        case MKind.image:
-          lines.add('$v = ImageMobject("image_${i.id}.png").scale_to_fit_width(${n(i.size.width)}).move_to(${p(i.pos)})');
-      }
-      final run = 'run_time=${n(i.runTime)}';
-      String? play;
-      final src = i.enter == MEnter.transform ? transformSource(idx) : null;
-      if (src != null) {
-        play = 'ReplacementTransform(m${items[src].id}, $v)';
-        removed.add(items[src].id);
+      if (items[idx].withPrevious && groups.isNotEmpty) {
+        groups.last.add(idx);
       } else {
-        play = switch (i.enter) {
-          MEnter.write => i.kind == MKind.image ? 'FadeIn($v)' : 'Write($v)',
-          MEnter.create => i.kind == MKind.graph ? 'Create(${v}_axes), Create(${v}_plot)'
-              : i.kind == MKind.image ? 'FadeIn($v)' : 'Create($v)',
-          MEnter.fadeIn || MEnter.transform => 'FadeIn($v, shift=UP * 0.3)',
-          MEnter.grow => 'GrowFromCenter($v)',
-          MEnter.drawBorder => i.kind == MKind.image ? 'FadeIn($v)' : 'DrawBorderThenFill($v)',
-          MEnter.none => null,
-        };
+        groups.add([idx]);
       }
-      out..writeln()..writeln('        # ${i.label}');
-      for (final l in lines) {
-        out.writeln('        $l');
-      }
-      out.writeln(play == null ? '        self.add($v)' : '        self.play($play, $run)');
-      final emph = switch (i.emphasis) {
-        MEmphasis.indicate => 'Indicate($v)',
-        MEmphasis.circumscribe => i.kind == MKind.image ? null : 'Circumscribe($v)',
-        MEmphasis.wiggle => 'Wiggle($v)',
-        MEmphasis.none => null,
-      };
-      if (emph != null) out.writeln('        self.play($emph)');
-      if (i.wait > 0) out.writeln('        self.wait(${n(i.wait)})');
     }
+
+    for (final group in groups) {
+      final enters = <String>[];
+      var runTime = 0.0;
+      for (final idx in group) {
+        final i = items[idx];
+        final v = 'm${i.id}';
+        out..writeln()..writeln('        # ${i.label}');
+        for (final l in _build(i, idx, v, n, p, latex)) {
+          out.writeln('        $l');
+        }
+        if (i.zoom) {
+          out.writeln('        self.play(self.camera.frame.animate.set(width=max($v.width * 2.2, 5)).move_to($v), run_time=0.8)');
+        }
+        final src = (i.enter == MEnter.transform || i.enter == MEnter.fadeTransform) ? transformSource(idx) : null;
+        final anim = src != null
+            ? '${i.enter == MEnter.transform ? 'ReplacementTransform' : 'FadeTransform'}(m${items[src].id}, $v)'
+            : _enter(i, v);
+        if (src != null) gone.add(items[src].id);
+        if (anim == null) {
+          out.writeln('        self.add($v)');
+        } else {
+          enters.add('$anim${_rate(i)}');
+          runTime = math.max(runTime, i.runTime);
+        }
+      }
+      if (enters.isNotEmpty) out.writeln('        self.play(${enters.join(', ')}, run_time=${n(runTime)})');
+      var wait = 0.0;
+      for (final idx in group) {
+        final i = items[idx];
+        final v = 'm${i.id}';
+        final emph = _emphasis(i, v);
+        if (emph != null) out.writeln('        self.play($emph)');
+        final move = _motion(i, v, n);
+        if (move != null) out.writeln('        self.play($move, run_time=${n(i.runTime)}${_rate(i)})');
+        wait = math.max(wait, i.wait);
+      }
+      if (wait > 0) out.writeln('        self.wait(${n(wait)})');
+      // A zoom is for that object's moment: the camera goes back to the whole frame before the next one
+      if (group.any((idx) => items[idx].zoom)) out.writeln('        self.play(Restore(self.camera.frame), run_time=0.8)');
+      final exits = [
+        for (final idx in group)
+          if (_exit(items[idx], 'm${items[idx].id}') case final e?) e,
+      ];
+      for (final idx in group) {
+        if (items[idx].exit != MExit.none) gone.add(items[idx].id);
+      }
+      if (exits.isNotEmpty) out.writeln('        self.play(${exits.join(', ')})');
+    }
+
     out.writeln();
-    final shown = [for (final i in items) if (!removed.contains(i.id)) 'm${i.id}'];
+    final shown = [for (final i in items) if (!gone.contains(i.id)) 'm${i.id}'];
     if (fadeOutAtEnd && shown.isNotEmpty) {
       if (endHold > 0) out.writeln('        self.wait(${n(endHold)})');
       out.writeln('        self.play(*[FadeOut(m) for m in [${shown.join(', ')}]])');
@@ -152,6 +153,131 @@ class ManimDoc {
     }
     return out.toString();
   }
+
+  /// The lines that create object `i` as variable `v`.
+  List<String> _build(MItem i, int idx, String v, String Function(double) n, String Function(Offset) p, bool latex) {
+    final c = _hex(i.color);
+    final style = 'color=$c, stroke_width=${n(i.stroke)}, fill_color=$c, fill_opacity=${n(i.fill)}';
+    final deg = i.curve * math.pi / 180;
+    switch (i.kind) {
+      case MKind.text:
+        return ['$v = Text(${jsonEncode(i.text)}, font=${jsonEncode(i.font)}, font_size=${n(i.fontSize)}, color=$c)'
+            '.move_to(${p(i.pos)})'];
+      case MKind.math:
+        return ['$v = MathTex(r"${_latex(i.text)}", font_size=${n(i.fontSize)}, color=$c).move_to(${p(i.pos)})'];
+      case MKind.rect:
+        return ['$v = Rectangle(width=${n(i.size.width)}, height=${n(i.size.height)}, $style).move_to(${p(i.pos)})'];
+      case MKind.circle:
+        return ['$v = Ellipse(width=${n(i.size.width)}, height=${n(i.size.height)}, $style).move_to(${p(i.pos)})'];
+      case MKind.triangle:
+        return ['$v = Triangle($style).stretch_to_fit_width(${n(i.size.width)}).stretch_to_fit_height(${n(i.size.height)})'
+            '.move_to(${p(i.pos)})'];
+      case MKind.polygon:
+        return ['$v = RegularPolygon(n=${i.sides}, $style).scale_to_fit_width(${n(i.size.width)}).move_to(${p(i.pos)})'];
+      case MKind.star:
+        return ['$v = Star(n=${i.sides}, $style).scale_to_fit_width(${n(i.size.width)}).move_to(${p(i.pos)})'];
+      case MKind.arrow:
+        if (i.curve.abs() < 1) {
+          return ['$v = ${i.doubleHead ? 'DoubleArrow' : 'Arrow'}(${p(i.pos)}, ${p(i.end)}, buff=0, color=$c, stroke_width=${n(i.stroke)})'];
+        }
+        return ['$v = ${i.doubleHead ? 'CurvedDoubleArrow' : 'CurvedArrow'}(${p(i.pos)}, ${p(i.end)}, angle=${n(deg)}, '
+            'color=$c, stroke_width=${n(i.stroke)})'];
+      case MKind.line:
+        if (i.curve.abs() < 1) {
+          return ['$v = ${i.dashed ? 'DashedLine' : 'Line'}(${p(i.pos)}, ${p(i.end)}, color=$c, stroke_width=${n(i.stroke)})'];
+        }
+        final arc = 'ArcBetweenPoints(${p(i.pos)}, ${p(i.end)}, angle=${n(deg)}, color=$c, stroke_width=${n(i.stroke)})';
+        return ['$v = ${i.dashed ? 'DashedVMobject($arc)' : arc}'];
+      case MKind.dot:
+        return ['$v = Dot(${p(i.pos)}, radius=${n(i.size.width / 2)}, color=$c)'];
+      case MKind.graph:
+        final f = Formula.toPython(i.text) ?? 'x';
+        final g = i.graph;
+        // Manim doesn't clip a plot to the axes, so only the stretches of x where y stays in range are drawn
+        final runs = _inRange(i.text, g);
+        return [
+          '${v}_axes = Axes(x_range=[${n(g.xMin)}, ${n(g.xMax)}, ${n(g.xStep)}], '
+              'y_range=[${n(g.yMin)}, ${n(g.yMax)}, ${n(g.yStep)}], x_length=${n(i.size.width)}, '
+              'y_length=${n(i.size.height)}, tips=False, axis_config={"include_numbers": ${latex ? 'True' : 'False'}, "font_size": 20})'
+              '.move_to(${p(i.pos)})',
+          '${v}_plot = VGroup(${[
+            for (final (a, b) in runs)
+              '${v}_axes.plot(lambda x: $f, x_range=[${n(a)}, ${n(b)}], color=$c, stroke_width=${n(i.stroke)})'
+          ].join(', ')})',
+          '$v = VGroup(${v}_axes, ${v}_plot)',
+        ];
+      case MKind.numberLine:
+        final g = i.graph;
+        return ['$v = NumberLine(x_range=[${n(g.xMin)}, ${n(g.xMax)}, ${n(g.xStep)}], length=${n(i.size.width)}, '
+            'color=$c, include_numbers=${latex ? 'True' : 'False'}).move_to(${p(i.pos)})'];
+      case MKind.brace:
+        final t = braceTarget(idx);
+        final target = t == null ? 'Line(LEFT, RIGHT)' : 'm${items[t].id}';
+        final dir = i.braceDir.manim;
+        final lines = ['${v}_brace = Brace($target, direction=$dir, color=$c)'];
+        if (i.text.isEmpty) {
+          lines.add('$v = ${v}_brace');
+        } else {
+          final label = i.braceMath
+              ? 'MathTex(r"${_latex(i.text)}", font_size=${n(i.fontSize)}, color=$c)'
+              : 'Text(${jsonEncode(i.text)}, font=${jsonEncode(i.font)}, font_size=${n(i.fontSize)}, color=$c)';
+          lines.add('$v = VGroup(${v}_brace, $label.next_to(${v}_brace, $dir))');
+        }
+        return lines;
+      case MKind.image:
+        return ['$v = ImageMobject("image_${i.id}.png").scale_to_fit_width(${n(i.size.width)}).move_to(${p(i.pos)})'];
+    }
+  }
+
+  static String? _enter(MItem i, String v) {
+    final vector = i.kind == MKind.image; // images can't be drawn stroke by stroke
+    final text = i.kind == MKind.text;
+    return switch (i.enter) {
+      MEnter.write => vector ? 'FadeIn($v)' : 'Write($v)',
+      MEnter.create => i.kind == MKind.graph ? 'Create($v)' : vector ? 'FadeIn($v)' : 'Create($v)',
+      MEnter.fadeIn => 'FadeIn($v)',
+      MEnter.fadeInUp => 'FadeIn($v, shift=UP)',
+      MEnter.fadeInDown => 'FadeIn($v, shift=DOWN)',
+      MEnter.fadeInLeft => 'FadeIn($v, shift=LEFT)',
+      MEnter.fadeInRight => 'FadeIn($v, shift=RIGHT)',
+      MEnter.grow => 'GrowFromCenter($v)',
+      MEnter.growFromEdge => 'GrowFromEdge($v, LEFT)',
+      MEnter.growArrow => i.kind == MKind.arrow && i.curve.abs() < 1 ? 'GrowArrow($v)' : 'GrowFromPoint($v, ${'$v'}.get_start())',
+      MEnter.spinIn => 'SpinInFromNothing($v)',
+      MEnter.drawBorder => vector ? 'FadeIn($v)' : 'DrawBorderThenFill($v)',
+      MEnter.letterByLetter => text ? 'AddTextLetterByLetter($v)' : 'Write($v)',
+      MEnter.transform || MEnter.fadeTransform => 'FadeIn($v)', // no earlier object to morph from
+      MEnter.none => null,
+    };
+  }
+
+  static String? _emphasis(MItem i, String v) => switch (i.emphasis) {
+        MEmphasis.indicate => 'Indicate($v)',
+        MEmphasis.circumscribe => i.kind == MKind.image ? 'Indicate($v)' : 'Circumscribe($v)',
+        MEmphasis.wiggle => 'Wiggle($v)',
+        MEmphasis.flash => 'Flash($v, color=${_hex(i.color)})',
+        MEmphasis.focusOn => 'FocusOn($v)',
+        MEmphasis.wave => i.kind == MKind.image ? 'Wiggle($v)' : 'ApplyWave($v)',
+        MEmphasis.none => null,
+      };
+
+  static String? _motion(MItem i, String v, String Function(double) n) => switch (i.motion) {
+        MMotion.move => '$v.animate.shift([${n(i.moveBy.dx)}, ${n(i.moveBy.dy)}, 0])',
+        MMotion.rotate => 'Rotate($v, angle=${n(i.rotateBy * math.pi / 180)})',
+        MMotion.scale => '$v.animate.scale(${n(i.scaleBy)})',
+        MMotion.color => i.kind == MKind.image ? null : '$v.animate.set_color(${_hex(i.toColor)})',
+        MMotion.none => null,
+      };
+
+  static String? _exit(MItem i, String v) => switch (i.exit) {
+        MExit.fadeOut => 'FadeOut($v)',
+        MExit.uncreate => i.kind == MKind.image ? 'FadeOut($v)' : 'Uncreate($v)',
+        MExit.shrink => 'ShrinkToCenter($v)',
+        MExit.unwrite => i.kind == MKind.image ? 'FadeOut($v)' : 'Unwrite($v)',
+        MExit.none => null,
+      };
+
+  static String _rate(MItem i) => i.rate == MRate.smooth ? '' : ', rate_func=${i.rate.manim}';
 
   /// The stretches of x (from, to) where the formula is defined and inside the y range.
   static List<(double, double)> _inRange(String formula, MGraph g) {
@@ -191,26 +317,61 @@ class ManimDoc {
 }
 
 enum MKind {
-  text('Text'), math('Math'), rect('Rectangle'), circle('Circle'), arrow('Arrow'), line('Line'), dot('Dot'),
-  graph('Graph'), image('Image');
+  text('Text'), math('Math'), rect('Rectangle'), circle('Circle'), triangle('Triangle'), polygon('Polygon'),
+  star('Star'), arrow('Arrow'), line('Line'), dot('Dot'), brace('Brace'), graph('Graph'), numberLine('Number Line'),
+  image('Image');
 
   final String label;
   const MKind(this.label);
 }
 
 enum MEnter {
-  write('Write'), create('Create'), fadeIn('Fade In'), grow('Grow'), drawBorder('Draw Border, Then Fill'),
-  transform('Transform from Previous'), none('Appear');
+  write('Write'), create('Create'), fadeIn('Fade In'), fadeInUp('Fade In from Below'), fadeInDown('Fade In from Above'),
+  fadeInLeft('Fade In from the Right'), fadeInRight('Fade In from the Left'), grow('Grow from Centre'),
+  growFromEdge('Grow from Edge'), growArrow('Grow Arrow'), spinIn('Spin In'), drawBorder('Draw Border, Then Fill'),
+  letterByLetter('Letter by Letter'), transform('Transform from Previous'), fadeTransform('Fade Transform from Previous'),
+  none('Appear');
 
   final String label;
   const MEnter(this.label);
 }
 
 enum MEmphasis {
-  none('None'), indicate('Indicate'), circumscribe('Circumscribe'), wiggle('Wiggle');
+  none('None'), indicate('Indicate'), circumscribe('Circumscribe'), wiggle('Wiggle'), flash('Flash'), focusOn('Focus On'),
+  wave('Wave');
 
   final String label;
   const MEmphasis(this.label);
+}
+
+enum MMotion {
+  none('None'), move('Move'), rotate('Rotate'), scale('Scale'), color('Change Colour');
+
+  final String label;
+  const MMotion(this.label);
+}
+
+enum MExit {
+  none('Stays'), fadeOut('Fade Out'), uncreate('Uncreate'), shrink('Shrink Away'), unwrite('Unwrite');
+
+  final String label;
+  const MExit(this.label);
+}
+
+enum MRate {
+  smooth('Smooth', 'smooth'), linear('Linear', 'linear'), thereAndBack('There and Back', 'there_and_back'),
+  rushInto('Rush In', 'rush_into'), rushFrom('Rush Out', 'rush_from'), easeInOut('Ease In-Out', 'rate_functions.ease_in_out_sine'),
+  bounce('Bounce', 'rate_functions.ease_out_bounce'); // the ease_* functions aren't in `from manim import *`
+
+  final String label, manim;
+  const MRate(this.label, this.manim);
+}
+
+enum MBraceDir {
+  down('Below', 'DOWN'), up('Above', 'UP'), left('Left', 'LEFT'), right('Right', 'RIGHT');
+
+  final String label, manim;
+  const MBraceDir(this.label, this.manim);
 }
 
 class MGraph {
@@ -224,9 +385,9 @@ class MGraph {
         yStep: g('yStep', 1));
   }
 
-  MGraph copyWith({double? xMin, double? xMax, double? yMin, double? yMax}) => MGraph(
-      xMin: xMin ?? this.xMin, xMax: xMax ?? this.xMax, xStep: xStep, yMin: yMin ?? this.yMin, yMax: yMax ?? this.yMax,
-      yStep: yStep);
+  MGraph copyWith({double? xMin, double? xMax, double? xStep, double? yMin, double? yMax}) => MGraph(
+      xMin: xMin ?? this.xMin, xMax: xMax ?? this.xMax, xStep: xStep ?? this.xStep, yMin: yMin ?? this.yMin,
+      yMax: yMax ?? this.yMax, yStep: yStep);
 }
 
 /// One object on the stage. Positions and sizes are in scene units (the frame is 14.222 × 8).
@@ -235,17 +396,30 @@ class MItem {
   MKind kind;
   Offset pos; // centre (arrow / line: start)
   Offset end; // arrow / line end
-  Size size; // rect / circle / graph / image width × height; dot: diameter
-  String text; // text, LaTeX, or the graph's formula
+  Size size; // shapes / graph / image / number line: width × height; dot: diameter
+  String text; // text, LaTeX, the graph's formula, or a brace's label
   String font;
   double fontSize;
   Color color;
   double fill; // 0…1
   double stroke;
+  double curve; // arrow / line bend, degrees (0 = straight; negative bends the other way)
+  bool doubleHead, dashed;
+  int sides; // polygon sides, star points
+  MBraceDir braceDir;
+  bool braceMath; // the brace's label is LaTeX
   MGraph graph;
   Uint8List? image;
   MEnter enter;
   MEmphasis emphasis;
+  MMotion motion;
+  Offset moveBy;
+  double rotateBy, scaleBy;
+  Color toColor;
+  MExit exit;
+  MRate rate;
+  bool withPrevious; // starts together with the object before it
+  bool zoom; // the camera flies to it as it enters
   double runTime, wait;
 
   MItem({
@@ -260,10 +434,25 @@ class MItem {
     this.color = const Color(0xFFFFFFFF),
     this.fill = 0,
     this.stroke = 4,
+    this.curve = 0,
+    this.doubleHead = false,
+    this.dashed = false,
+    this.sides = 5,
+    this.braceDir = MBraceDir.down,
+    this.braceMath = false,
     this.graph = const MGraph(),
     this.image,
     MEnter? enter,
     this.emphasis = MEmphasis.none,
+    this.motion = MMotion.none,
+    this.moveBy = const Offset(2, 0),
+    this.rotateBy = 90,
+    this.scaleBy = 1.5,
+    this.toColor = const Color(0xFFFFFF00),
+    this.exit = MExit.none,
+    this.rate = MRate.smooth,
+    this.withPrevious = false,
+    this.zoom = false,
     this.runTime = 1,
     this.wait = 0.5,
   }) : enter = enter ?? _defaultEnter(kind);
@@ -271,7 +460,9 @@ class MItem {
   static MEnter _defaultEnter(MKind k) => switch (k) {
         MKind.text || MKind.math => MEnter.write,
         MKind.dot => MEnter.grow,
+        MKind.arrow => MEnter.growArrow,
         MKind.image => MEnter.fadeIn,
+        MKind.brace => MEnter.grow,
         _ => MEnter.create,
       };
 
@@ -281,22 +472,31 @@ class MItem {
     final l = switch (kind) {
       MKind.text || MKind.math => '${kind.label}: ${text.split('\n').first}',
       MKind.graph => Formula.toPython(text) == null ? 'Graph (formula not valid)' : 'Graph: y = $text',
+      MKind.brace when text.isNotEmpty => 'Brace: ${text.split('\n').first}',
+      MKind.arrow when curve.abs() >= 1 => 'Curved Arrow',
+      MKind.polygon => '$sides-sided Polygon',
+      MKind.star => '$sides-point Star',
       _ => kind.label,
     };
-    return l.replaceAll(RegExp(r'[\x00-\x1f\x7f\u0085\u2028\u2029]'), ' ');
+    return l.replaceAll(RegExp(r'[\x00-\x1f\x7f\u0085  ]'), ' ');
   }
 
   Map<String, Object?> toJson() => {
         'id': id, 'kind': kind.name, 'pos': [pos.dx, pos.dy], 'end': [end.dx, end.dy], 'size': [size.width, size.height],
         'text': text, 'font': font, 'fontSize': fontSize, 'color': color.toARGB32(), 'fill': fill, 'stroke': stroke,
-        'graph': graph.toJson(), if (image != null) 'image': base64Encode(image!),
-        'enter': enter.name, 'emphasis': emphasis.name, 'runTime': runTime, 'wait': wait,
+        'curve': curve, 'doubleHead': doubleHead, 'dashed': dashed, 'sides': sides, 'braceDir': braceDir.name,
+        'braceMath': braceMath, 'graph': graph.toJson(), if (image != null) 'image': base64Encode(image!),
+        'enter': enter.name, 'emphasis': emphasis.name, 'motion': motion.name, 'moveBy': [moveBy.dx, moveBy.dy],
+        'rotateBy': rotateBy, 'scaleBy': scaleBy, 'toColor': toColor.toARGB32(), 'exit': exit.name, 'rate': rate.name,
+        'withPrevious': withPrevious, 'zoom': zoom, 'runTime': runTime, 'wait': wait,
       };
 
   static MItem? fromJson(Map<String, dynamic> j) {
     final kind = MKind.values.where((k) => k.name == j['kind']).firstOrNull;
     if (kind == null || j['id'] is! int) return null;
     Offset o(Object? v, Offset d) => v is List && v.length == 2 ? Offset((v[0] as num).toDouble(), (v[1] as num).toDouble()) : d;
+    double d(String k, double def) => (j[k] as num?)?.toDouble() ?? def;
+    T pick<T extends Enum>(List<T> values, String k, T def) => values.where((e) => e.name == j[k]).firstOrNull ?? def;
     final sz = j['size'];
     return MItem(
       id: j['id'] as int,
@@ -306,16 +506,31 @@ class MItem {
       size: sz is List && sz.length == 2 ? Size((sz[0] as num).toDouble(), (sz[1] as num).toDouble()) : const Size(3, 2),
       text: j['text'] as String? ?? '',
       font: j['font'] as String? ?? 'Helvetica Neue',
-      fontSize: (j['fontSize'] as num?)?.toDouble() ?? 48,
+      fontSize: d('fontSize', 48),
       color: Color(j['color'] as int? ?? 0xFFFFFFFF),
-      fill: (j['fill'] as num?)?.toDouble() ?? 0,
-      stroke: (j['stroke'] as num?)?.toDouble() ?? 4,
+      fill: d('fill', 0),
+      stroke: d('stroke', 4),
+      curve: d('curve', 0),
+      doubleHead: j['doubleHead'] == true,
+      dashed: j['dashed'] == true,
+      sides: (j['sides'] as int? ?? 5).clamp(3, 12),
+      braceDir: pick(MBraceDir.values, 'braceDir', MBraceDir.down),
+      braceMath: j['braceMath'] == true,
       graph: MGraph.fromJson(j['graph'] as Map<String, dynamic>?),
       image: j['image'] is String ? base64Decode(j['image'] as String) : null,
       enter: MEnter.values.where((e) => e.name == j['enter']).firstOrNull,
-      emphasis: MEmphasis.values.where((e) => e.name == j['emphasis']).firstOrNull ?? MEmphasis.none,
-      runTime: (j['runTime'] as num?)?.toDouble() ?? 1,
-      wait: (j['wait'] as num?)?.toDouble() ?? 0.5,
+      emphasis: pick(MEmphasis.values, 'emphasis', MEmphasis.none),
+      motion: pick(MMotion.values, 'motion', MMotion.none),
+      moveBy: o(j['moveBy'], const Offset(2, 0)),
+      rotateBy: d('rotateBy', 90),
+      scaleBy: d('scaleBy', 1.5),
+      toColor: Color(j['toColor'] as int? ?? 0xFFFFFF00),
+      exit: pick(MExit.values, 'exit', MExit.none),
+      rate: pick(MRate.values, 'rate', MRate.smooth),
+      withPrevious: j['withPrevious'] == true,
+      zoom: j['zoom'] == true,
+      runTime: d('runTime', 1),
+      wait: d('wait', 0.5),
     );
   }
 }

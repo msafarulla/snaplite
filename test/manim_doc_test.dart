@@ -55,4 +55,36 @@ void main() {
     expect(back.items.last.emphasis, MEmphasis.wiggle);
     expect(back.newId(), 6, reason: 'new ids continue after the saved ones');
   });
+
+  test('together, camera, curves, braces, motion and exits become the right Manim', () {
+    final d = ManimDoc();
+    MItem add(MKind k, {String text = ''}) {
+      final i = MItem(id: d.newId(), kind: k, text: text);
+      d.items.add(i);
+      return i;
+    }
+    add(MKind.rect).zoom = true;
+    add(MKind.circle).withPrevious = true;
+    add(MKind.brace, text: 'width').braceDir = MBraceDir.up;
+    add(MKind.arrow)..curve = 90..doubleHead = true..rate = MRate.bounce;
+    add(MKind.star)..motion = MMotion.rotate..rotateBy = 180..exit = MExit.shrink;
+    final code = d.code();
+    expect(code, contains('class SnapStudio(MovingCameraScene):'));
+    expect(RegExp(r'self\.play\(Create\(m1\), Create\(m2\), run_time=').hasMatch(code), isTrue, reason: 'started together');
+    expect(code, contains('self.play(Restore(self.camera.frame)'), reason: 'the camera comes back after the zoom');
+    expect(code, contains('Brace(m2, direction=UP'), reason: 'braces wrap the object before them');
+    expect(code, contains('CurvedDoubleArrow('));
+    expect(code, contains('rate_func=rate_functions.ease_out_bounce'));
+    expect(code, contains('Rotate(m5, angle=3.142)'));
+    expect(code, contains('ShrinkToCenter(m5)'));
+    expect(code, isNot(contains('FadeOut(m) for m in [m1, m2, m3, m4, m5]')), reason: 'what left already isn\'t faded again');
+  });
+
+  test('version 1 projects (before curves and motion) still open', () {
+    final old = '{"format":"snapnow-manim","version":1,"items":[{"id":3,"kind":"arrow","pos":[0,0],"end":[1,1],"enter":"create"}]}';
+    final d = ManimDoc.decode(old);
+    expect(d.items.single.curve, 0);
+    expect(d.items.single.exit, MExit.none);
+    expect(d.code(), contains('Arrow('));
+  });
 }

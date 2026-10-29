@@ -146,7 +146,7 @@ class ManimStudioPageState extends State<ManimStudioPage> {
     } catch (_) {}
   }
 
-  void add(MKind kind) async {
+  void add(MKind kind, {double curve = 0}) async {
     final id = doc.newId();
     final n = doc.items.length;
     final at = Offset(((n % 5) - 2) * 0.6, 1.5 - (n % 4) * 1.0); // new objects don't all stack
@@ -160,8 +160,19 @@ class ManimStudioPageState extends State<ManimStudioPage> {
         item = MItem(id: id, kind: kind, pos: at, size: const Size(3, 2), color: palette[1], fill: 0.3);
       case MKind.circle:
         item = MItem(id: id, kind: kind, pos: at, size: const Size(2, 2), color: palette[4], fill: 0.3);
+      case MKind.triangle:
+        item = MItem(id: id, kind: kind, pos: at, size: const Size(2.4, 2), color: palette[2], fill: 0.3);
+      case MKind.polygon:
+        item = MItem(id: id, kind: kind, pos: at, size: const Size(2.2, 2.2), color: palette[5], fill: 0.3, sides: 6);
+      case MKind.star:
+        item = MItem(id: id, kind: kind, pos: at, size: const Size(2.2, 2.2), color: palette[3], fill: 0.8, sides: 5);
       case MKind.arrow || MKind.line:
-        item = MItem(id: id, kind: kind, pos: at - const Offset(1.5, 0), end: at + const Offset(1.5, 0), color: palette[3]);
+        item = MItem(id: id, kind: kind, pos: at - const Offset(1.5, 0), end: at + const Offset(1.5, 0), color: palette[3], curve: curve);
+      case MKind.brace:
+        item = MItem(id: id, kind: kind, color: palette[0], text: 'label', fontSize: 36);
+      case MKind.numberLine:
+        item = MItem(id: id, kind: kind, pos: const Offset(0, -2.5), size: const Size(10, 0.6), color: palette[0],
+            graph: const MGraph(xMin: -5, xMax: 5));
       case MKind.dot:
         item = MItem(id: id, kind: kind, pos: at, size: const Size(0.16, 0.16), color: palette[3]);
       case MKind.graph:
@@ -304,12 +315,26 @@ class ManimStudioPageState extends State<ManimStudioPage> {
       title: Row(children: [
         tool(MKind.text, Icons.title),
         tool(MKind.math, Icons.functions),
-        tool(MKind.rect, Icons.crop_square),
-        tool(MKind.circle, Icons.circle_outlined),
+        _menuTool('Shapes', Icons.category_outlined, [
+          (MKind.rect, 'Rectangle'), (MKind.circle, 'Circle'), (MKind.triangle, 'Triangle'), (MKind.polygon, 'Polygon'),
+          (MKind.star, 'Star'), (MKind.dot, 'Dot'),
+        ]),
         tool(MKind.arrow, Icons.arrow_right_alt),
+        Tooltip(
+          message: 'Add Curved Arrow',
+          child: InkWell(
+            borderRadius: BorderRadius.circular(8),
+            onTap: () => add(MKind.arrow, curve: 60),
+            child: const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.redo, size: 20), Text('Curved', style: TextStyle(fontSize: 10.5))]),
+            ),
+          ),
+        ),
         tool(MKind.line, Icons.horizontal_rule),
-        tool(MKind.dot, Icons.fiber_manual_record),
+        tool(MKind.brace, Icons.data_array),
         tool(MKind.graph, Icons.show_chart),
+        tool(MKind.numberLine, Icons.linear_scale),
         tool(MKind.image, Icons.image_outlined),
       ]),
       actions: [
@@ -334,6 +359,17 @@ class ManimStudioPageState extends State<ManimStudioPage> {
       ],
     );
   }
+
+  /// A toolbar button with a menu of kinds (the shapes).
+  Widget _menuTool(String label, IconData icon, List<(MKind, String)> kinds) => PopupMenuButton<MKind>(
+        tooltip: 'Add a shape',
+        onSelected: add,
+        itemBuilder: (_) => [for (final (k, l) in kinds) PopupMenuItem(value: k, height: 32, child: Text(l))],
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [Icon(icon, size: 20), Text('$label ▾', style: const TextStyle(fontSize: 10.5))]),
+        ),
+      );
 
   Widget _banner(ColorScheme scheme, String text) => Container(
         width: double.infinity,
@@ -384,7 +420,8 @@ class ManimStudioPageState extends State<ManimStudioPage> {
                       i.pos += ds;
                     case 'size':
                       final w = math.max(0.2, i.size.width + ds.dx * 2), h = math.max(0.2, i.size.height - ds.dy * 2);
-                      i.size = i.kind == MKind.image ? Size(w, w) : Size(w, h);
+                      final square = i.kind == MKind.image || i.kind == MKind.polygon || i.kind == MKind.star;
+                      i.size = square ? Size(w, w) : i.kind == MKind.numberLine ? Size(w, i.size.height) : Size(w, h);
                     default:
                       i.pos += ds;
                       if (i.kind == MKind.arrow || i.kind == MKind.line) i.end += ds;
@@ -395,7 +432,7 @@ class ManimStudioPageState extends State<ManimStudioPage> {
               child: ClipRect(
                 child: CustomPaint(
                   size: c.biggest,
-                  painter: _StagePainter(doc: doc, selected: selected, images: _images, toPx: _toPx, ppu: _ppu),
+                  painter: _StagePainter(doc: doc, selected: selected, images: _images, toPx: _toPx, bounds: _bounds, ppu: _ppu),
                 ),
               ),
             );
@@ -416,8 +453,12 @@ class ManimStudioPageState extends State<ManimStudioPage> {
     for (final i in doc.items.reversed) {
       if (_bounds(i).inflate(6).contains(p)) {
         if (i.kind == MKind.arrow || i.kind == MKind.line) {
-          final a = _toPx(i.pos), b = _toPx(i.end);
-          if (_distToSegment(p, a, b) > 10) continue;
+          final pts = _StagePainter.curvePoints(i).map(_toPx).toList();
+          var near = false;
+          for (var k = 1; k < pts.length && !near; k++) {
+            near = _distToSegment(p, pts[k - 1], pts[k]) <= 10;
+          }
+          if (!near) continue;
         }
         return (i.id, 'body');
       }
@@ -427,7 +468,8 @@ class ManimStudioPageState extends State<ManimStudioPage> {
 
   List<(String, Offset)> _handles(MItem i) => switch (i.kind) {
         MKind.arrow || MKind.line => [('start', _toPx(i.pos)), ('end', _toPx(i.end))],
-        MKind.rect || MKind.circle || MKind.graph || MKind.image => [('size', _bounds(i).bottomRight)],
+        MKind.rect || MKind.circle || MKind.triangle || MKind.polygon || MKind.star || MKind.graph || MKind.image ||
+        MKind.numberLine => [('size', _bounds(i).bottomRight)],
         _ => const [],
       };
 
@@ -446,7 +488,12 @@ class ManimStudioPageState extends State<ManimStudioPage> {
         final tp = _StagePainter.textFor(i, _ppu);
         return Rect.fromCenter(center: c, width: tp.width, height: tp.height);
       case MKind.arrow || MKind.line:
-        return Rect.fromPoints(c, _toPx(i.end));
+        final pts = _StagePainter.curvePoints(i).map(_toPx).toList();
+        return pts.fold(Rect.fromPoints(pts.first, pts.first), (r, q) => r.expandToInclude(Rect.fromPoints(q, q)));
+      case MKind.polygon || MKind.star:
+        return Rect.fromCenter(center: c, width: i.size.width * _ppu, height: i.size.width * _ppu);
+      case MKind.brace:
+        return _StagePainter.braceRect(doc, i, _bounds, _ppu) ?? Rect.fromCenter(center: c, width: 60, height: 20);
       case MKind.image:
         final img = _images[i.id];
         final w = i.size.width * _ppu, h = img == null ? w * 0.66 : w * img.height / img.width;
@@ -513,6 +560,21 @@ class ManimStudioPageState extends State<ManimStudioPage> {
           Expanded(child: Slider(value: v.clamp(min, max), min: min, max: max, onChanged: (x) => setState(() => on(x)), onChangeEnd: (_) => changed())),
           SizedBox(width: 36, child: Text(v.toStringAsFixed(digits), style: const TextStyle(fontSize: 11.5))),
         ]);
+    Widget check(String label, bool v, ValueChanged<bool> on) => CheckboxListTile(
+          dense: true, contentPadding: EdgeInsets.zero, controlAffinity: ListTileControlAffinity.leading, visualDensity: VisualDensity.compact,
+          value: v, title: Text(label, style: const TextStyle(fontSize: 12.5)), onChanged: (x) => changed(() => on(x ?? false)),
+        );
+    Widget dropdown<T>(String label, T value, List<T> values, String Function(T) name, ValueChanged<T> on) => Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: DropdownButtonFormField<T>(
+            key: ValueKey('$label-$selected'),
+            value: value,
+            isDense: true,
+            decoration: InputDecoration(labelText: label, isDense: true, border: const OutlineInputBorder()),
+            items: [for (final x in values) DropdownMenuItem(value: x, child: Text(name(x), style: const TextStyle(fontSize: 13)))],
+            onChanged: (x) { if (x != null) changed(() => on(x)); },
+          ),
+        );
     Widget colors(Color current, ValueChanged<Color> on) => Wrap(spacing: 6, runSpacing: 6, children: [
           for (final c in palette)
             GestureDetector(
@@ -567,12 +629,56 @@ class ManimStudioPageState extends State<ManimStudioPage> {
           kids.addAll([field('LaTeX', i.text, (v) => i.text = v, lines: 3), const SizedBox(height: 4),
             Text(r'e.g. \frac{1}{2}, x^2, \int_0^1 f(x)\,dx, \sum_{n=1}^\infty', style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
             const SizedBox(height: 8), slider('Size', i.fontSize, 12, 160, (v) => i.fontSize = v, digits: 0)]);
-        case MKind.rect || MKind.circle:
+        case MKind.rect || MKind.circle || MKind.triangle:
           kids.addAll([slider('Width', i.size.width, 0.2, 14, (v) => i.size = Size(v, i.size.height)),
             slider('Height', i.size.height, 0.2, 8, (v) => i.size = Size(i.size.width, v)),
             slider('Fill', i.fill, 0, 1, (v) => i.fill = v), slider('Line', i.stroke, 0, 16, (v) => i.stroke = v)]);
+        case MKind.polygon || MKind.star:
+          kids.addAll([
+            slider(i.kind == MKind.star ? 'Points' : 'Sides', i.sides.toDouble(), i.kind == MKind.star ? 4 : 3, 12,
+                (v) => i.sides = v.round(), digits: 0),
+            slider('Size', i.size.width, 0.3, 8, (v) => i.size = Size(v, v)),
+            slider('Fill', i.fill, 0, 1, (v) => i.fill = v), slider('Line', i.stroke, 0, 16, (v) => i.stroke = v)]);
         case MKind.arrow || MKind.line:
-          kids.add(slider('Line', i.stroke, 1, 16, (v) => i.stroke = v));
+          kids.addAll([
+            slider('Curve', i.curve, -180, 180, (v) => i.curve = v.abs() < 4 ? 0 : v, digits: 0),
+            slider('Line', i.stroke, 1, 16, (v) => i.stroke = v),
+            if (i.kind == MKind.arrow) check('Arrowhead at both ends', i.doubleHead, (v) => i.doubleHead = v),
+            if (i.kind == MKind.line) check('Dashed', i.dashed, (v) => i.dashed = v),
+          ]);
+        case MKind.brace:
+          final t = doc.braceTarget(doc.items.indexOf(i));
+          kids.addAll([
+            Text(t == null ? 'Add the object to brace first (the brace wraps the one before it in the timeline).'
+                : 'Wraps: ${doc.items[t].label}', style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<MBraceDir>(
+              key: ValueKey('brace-$selected'),
+              value: i.braceDir,
+              isDense: true,
+              decoration: const InputDecoration(labelText: 'Side', isDense: true, border: OutlineInputBorder()),
+              items: [for (final d in MBraceDir.values) DropdownMenuItem(value: d, child: Text(d.label, style: const TextStyle(fontSize: 13)))],
+              onChanged: (d) => changed(() => i.braceDir = d ?? i.braceDir),
+            ),
+            const SizedBox(height: 8),
+            field('Label (optional)', i.text, (v) => i.text = v),
+            check('Label is LaTeX', i.braceMath, (v) => i.braceMath = v),
+            slider('Label size', i.fontSize, 12, 96, (v) => i.fontSize = v, digits: 0),
+          ]);
+        case MKind.numberLine:
+          kids.addAll([
+            Row(children: [
+              Expanded(child: field('from', '${i.graph.xMin}', (v) => i.graph = i.graph.copyWith(xMin: double.tryParse(v)))),
+              const SizedBox(width: 6),
+              Expanded(child: field('to', '${i.graph.xMax}', (v) => i.graph = i.graph.copyWith(xMax: double.tryParse(v)))),
+              const SizedBox(width: 6),
+              Expanded(child: field('step', '${i.graph.xStep}', (v) {
+                final st = double.tryParse(v);
+                if (st != null && st > 0) i.graph = i.graph.copyWith(xStep: st);
+              })),
+            ]),
+            slider('Length', i.size.width, 2, 14, (v) => i.size = Size(v, i.size.height)),
+          ]);
         case MKind.dot:
           kids.add(slider('Size', i.size.width, 0.05, 1, (v) => i.size = Size(v, v), digits: 2));
         case MKind.graph:
@@ -601,32 +707,33 @@ class ManimStudioPageState extends State<ManimStudioPage> {
       if (i.kind != MKind.image) {
         kids.addAll([head('Colour'), colors(i.color, (c) => i.color = c)]);
       }
-      final transformOk = (i.kind == MKind.text || i.kind == MKind.math) && doc.transformSource(doc.items.indexOf(i)) != null;
+      final index = doc.items.indexOf(i);
+      final transformOk = doc.transformSource(index) != null;
+      final transforms = {MEnter.transform, MEnter.fadeTransform};
+      final enter = transforms.contains(i.enter) && !transformOk ? MEnter.fadeIn : i.enter;
       kids.addAll([
         head('Animation'),
-        DropdownButtonFormField<MEnter>(
-          key: ValueKey('enter-$selected'),
-          value: i.enter == MEnter.transform && !transformOk ? MEnter.write : i.enter,
-          isDense: true,
-          decoration: const InputDecoration(labelText: 'Enters with', isDense: true, border: OutlineInputBorder()),
-          items: [
-            for (final e in MEnter.values)
-              if (e != MEnter.transform || transformOk) DropdownMenuItem(value: e, child: Text(e.label, style: const TextStyle(fontSize: 13))),
-          ],
-          onChanged: (e) => changed(() => i.enter = e ?? i.enter),
-        ),
-        const SizedBox(height: 8),
-        DropdownButtonFormField<MEmphasis>(
-          key: ValueKey('emphasis-$selected'),
-          value: i.emphasis,
-          isDense: true,
-          decoration: const InputDecoration(labelText: 'Then', isDense: true, border: OutlineInputBorder()),
-          items: [for (final e in MEmphasis.values) DropdownMenuItem(value: e, child: Text(e.label, style: const TextStyle(fontSize: 13)))],
-          onChanged: (e) => changed(() => i.emphasis = e ?? i.emphasis),
-        ),
-        const SizedBox(height: 4),
+        dropdown('Enters with', enter, [for (final e in MEnter.values) if (!transforms.contains(e) || transformOk) e],
+            (e) => e.label, (e) => i.enter = e),
+        if (index > 0) check('Start together with the previous one', i.withPrevious, (v) => i.withPrevious = v),
+        dropdown('Easing', i.rate, MRate.values, (r) => r.label, (r) => i.rate = r),
         slider('Run time', i.runTime, 0.2, 5, (v) => i.runTime = v),
+        check('Zoom the camera to it', i.zoom, (v) => i.zoom = v),
+        const SizedBox(height: 6),
+        dropdown('Then', i.emphasis, MEmphasis.values, (e) => e.label, (e) => i.emphasis = e),
+        dropdown('Afterwards', i.motion, MMotion.values, (m) => m.label, (m) => i.motion = m),
+        if (i.motion == MMotion.move)
+          Row(children: [
+            Expanded(child: field('move x', '${i.moveBy.dx}', (v) => i.moveBy = Offset(double.tryParse(v) ?? i.moveBy.dx, i.moveBy.dy))),
+            const SizedBox(width: 6),
+            Expanded(child: field('move y', '${i.moveBy.dy}', (v) => i.moveBy = Offset(i.moveBy.dx, double.tryParse(v) ?? i.moveBy.dy))),
+          ]),
+        if (i.motion == MMotion.rotate) slider('Degrees', i.rotateBy, -360, 360, (v) => i.rotateBy = v, digits: 0),
+        if (i.motion == MMotion.scale) slider('Scale by', i.scaleBy, 0.2, 4, (v) => i.scaleBy = v),
+        if (i.motion == MMotion.color) colors(i.toColor, (c) => i.toColor = c),
+        if (i.motion != MMotion.none) const SizedBox(height: 8),
         slider('Pause after', i.wait, 0, 5, (v) => i.wait = v),
+        dropdown('Then leaves', i.exit, MExit.values, (e) => e.label, (e) => i.exit = e),
         const SizedBox(height: 8),
         Row(children: [
           TextButton.icon(onPressed: duplicate, icon: const Icon(Icons.copy, size: 16), label: const Text('Duplicate')),
@@ -674,8 +781,54 @@ class _StagePainter extends CustomPainter {
   final int? selected;
   final Map<int, ui.Image> images;
   final Offset Function(Offset) toPx;
+  final Rect Function(MItem) bounds; // the stage's own (a brace wraps another object's box)
   final double ppu;
-  _StagePainter({required this.doc, required this.selected, required this.images, required this.toPx, required this.ppu});
+  _StagePainter({required this.doc, required this.selected, required this.images, required this.toPx, required this.bounds,
+      required this.ppu});
+
+  /// An arrow's or line's path in scene units: straight, or the arc Manim draws for `curve` degrees
+  /// (ArcBetweenPoints: positive angles turn counter-clockwise from the start).
+  static List<Offset> curvePoints(MItem i) {
+    final a = i.pos, b = i.end;
+    final th = i.curve * math.pi / 180;
+    if (th.abs() < 0.02 || (b - a).distance < 1e-6) return [a, b];
+    final chord = b - a, len = chord.distance, mid = (a + b) / 2;
+    final perp = Offset(-chord.dy, chord.dx) / len; // left of the chord (y up)
+    final centre = mid + perp * (len / 2 / math.tan(th / 2));
+    final a0 = math.atan2(a.dy - centre.dy, a.dx - centre.dx), r = (a - centre).distance;
+    return [for (var k = 0; k <= 48; k++) centre + Offset(math.cos(a0 + th * k / 48), math.sin(a0 + th * k / 48)) * r];
+  }
+
+  /// Where a brace sits on the stage (pixels): along the chosen side of the object it wraps.
+  static Rect? braceRect(ManimDoc doc, MItem i, Rect Function(MItem) bounds, double ppu) {
+    final t = doc.braceTarget(doc.items.indexOf(i));
+    if (t == null) return null;
+    final r = bounds(doc.items[t]);
+    final d = 0.3 * ppu, gap = 0.1 * ppu;
+    return switch (i.braceDir) {
+      MBraceDir.down => Rect.fromLTWH(r.left, r.bottom + gap, r.width, d),
+      MBraceDir.up => Rect.fromLTWH(r.left, r.top - gap - d, r.width, d),
+      MBraceDir.left => Rect.fromLTWH(r.left - gap - d, r.top, d, r.height),
+      MBraceDir.right => Rect.fromLTWH(r.right + gap, r.top, d, r.height),
+    };
+  }
+
+  static Path _polygon(Offset c, double radius, int n, {bool star = false}) {
+    final pts = <Offset>[];
+    final count = star ? n * 2 : n;
+    for (var k = 0; k < count; k++) {
+      final ang = -math.pi / 2 + k * 2 * math.pi / count;
+      final rr = star && k.isOdd ? radius * 0.42 : radius;
+      pts.add(c + Offset(math.cos(ang), math.sin(ang)) * rr);
+    }
+    return Path()..addPolygon(pts, true);
+  }
+
+  void _head(Canvas canvas, Offset tip, Offset from, Color color) {
+    if ((tip - from).distance < 0.5) return;
+    final u = (tip - from) / (tip - from).distance, n = Offset(-u.dy, u.dx), h = 0.25 * ppu;
+    canvas.drawPath(Path()..addPolygon([tip, tip - u * h + n * h * 0.5, tip - u * h - n * h * 0.5], true), Paint()..color = color);
+  }
 
   /// Manim's font_size 48 is about 0.5 units of cap height; a font's em is ~1.45 times that.
   static TextPainter textFor(MItem i, double ppu) {
@@ -716,13 +869,74 @@ class _StagePainter extends CustomPainter {
         case MKind.circle:
           final r = Rect.fromCenter(center: c, width: i.size.width * ppu, height: i.size.height * ppu);
           canvas..drawOval(r, fill)..drawOval(r, stroke);
+        case MKind.triangle:
+          final r = Rect.fromCenter(center: c, width: i.size.width * ppu, height: i.size.height * ppu);
+          final tri = Path()..addPolygon([r.topCenter, r.bottomRight, r.bottomLeft], true);
+          canvas..drawPath(tri, fill)..drawPath(tri, stroke);
+        case MKind.polygon || MKind.star:
+          final path = _polygon(c, i.size.width / 2 * ppu, i.sides, star: i.kind == MKind.star);
+          canvas..drawPath(path, fill)..drawPath(path, stroke);
         case MKind.arrow || MKind.line:
-          final a = c, b = toPx(i.end);
-          canvas.drawLine(a, b, stroke);
-          if (i.kind == MKind.arrow && (b - a).distance > 1) {
-            final u = (b - a) / (b - a).distance, n = Offset(-u.dy, u.dx), head = 0.25 * ppu;
-            canvas.drawPath(Path()..moveTo(b.dx, b.dy)..lineTo((b - u * head + n * head * 0.5).dx, (b - u * head + n * head * 0.5).dy)
-              ..lineTo((b - u * head - n * head * 0.5).dx, (b - u * head - n * head * 0.5).dy)..close(), Paint()..color = i.color);
+          final pts = curvePoints(i).map(toPx).toList();
+          final path = Path()..addPolygon(pts, false);
+          if (i.dashed && i.kind == MKind.line) {
+            for (final m in path.computeMetrics()) {
+              for (var d = 0.0; d < m.length; d += 14) {
+                canvas.drawPath(m.extractPath(d, math.min(d + 8, m.length)), stroke);
+              }
+            }
+          } else {
+            canvas.drawPath(path, stroke);
+          }
+          if (i.kind == MKind.arrow) {
+            _head(canvas, pts.last, pts[pts.length - 2], i.color);
+            if (i.doubleHead) _head(canvas, pts.first, pts[1], i.color);
+          }
+        case MKind.brace:
+          final r = braceRect(doc, i, bounds, ppu);
+          if (r == null) break;
+          final horizontal = i.braceDir == MBraceDir.down || i.braceDir == MBraceDir.up;
+          final out = i.braceDir == MBraceDir.down || i.braceDir == MBraceDir.right ? 1.0 : -1.0;
+          final b = Path();
+          if (horizontal) {
+            final y0 = out > 0 ? r.top : r.bottom, y1 = out > 0 ? r.bottom : r.top;
+            b..moveTo(r.left, y0)..quadraticBezierTo(r.left, (y0 + y1) / 2, r.left + r.width * 0.1, (y0 + y1) / 2)
+              ..lineTo(r.center.dx - r.width * 0.05, (y0 + y1) / 2)..lineTo(r.center.dx, y1)
+              ..lineTo(r.center.dx + r.width * 0.05, (y0 + y1) / 2)..lineTo(r.right - r.width * 0.1, (y0 + y1) / 2)
+              ..quadraticBezierTo(r.right, (y0 + y1) / 2, r.right, y0);
+          } else {
+            final x0 = out > 0 ? r.left : r.right, x1 = out > 0 ? r.right : r.left;
+            b..moveTo(x0, r.top)..quadraticBezierTo((x0 + x1) / 2, r.top, (x0 + x1) / 2, r.top + r.height * 0.1)
+              ..lineTo((x0 + x1) / 2, r.center.dy - r.height * 0.05)..lineTo(x1, r.center.dy)
+              ..lineTo((x0 + x1) / 2, r.center.dy + r.height * 0.05)..lineTo((x0 + x1) / 2, r.bottom - r.height * 0.1)
+              ..quadraticBezierTo((x0 + x1) / 2, r.bottom, x0, r.bottom);
+          }
+          canvas.drawPath(b, Paint()..color = i.color..style = PaintingStyle.stroke..strokeWidth = 2);
+          if (i.text.isNotEmpty) {
+            final tp = textFor(i, ppu);
+            final at = switch (i.braceDir) {
+              MBraceDir.down => Offset(r.center.dx - tp.width / 2, r.bottom + 4),
+              MBraceDir.up => Offset(r.center.dx - tp.width / 2, r.top - tp.height - 4),
+              MBraceDir.left => Offset(r.left - tp.width - 6, r.center.dy - tp.height / 2),
+              MBraceDir.right => Offset(r.right + 6, r.center.dy - tp.height / 2),
+            };
+            tp.paint(canvas, at);
+          }
+        case MKind.numberLine:
+          final g = i.graph;
+          final w = i.size.width * ppu;
+          final a = c - Offset(w / 2, 0), b = c + Offset(w / 2, 0);
+          canvas.drawLine(a, b, Paint()..color = i.color..strokeWidth = 2);
+          if (g.xMax > g.xMin && g.xStep > 0 && (g.xMax - g.xMin) / g.xStep <= 60) {
+            for (var x = g.xMin; x <= g.xMax + 1e-9; x += g.xStep) {
+              final px = a.dx + (x - g.xMin) / (g.xMax - g.xMin) * w;
+              canvas.drawLine(Offset(px, c.dy - 5), Offset(px, c.dy + 5), Paint()..color = i.color..strokeWidth = 1.5);
+              final tp = TextPainter(
+                  text: TextSpan(text: x == x.roundToDouble() ? '${x.round()}' : x.toStringAsFixed(1),
+                      style: TextStyle(color: i.color, fontSize: 0.28 * ppu)),
+                  textDirection: TextDirection.ltr)..layout();
+              tp.paint(canvas, Offset(px - tp.width / 2, c.dy + 8));
+            }
           }
         case MKind.dot:
           canvas.drawCircle(c, i.size.width / 2 * ppu, Paint()..color = i.color);
@@ -774,6 +988,12 @@ class _StagePainter extends CustomPainter {
       case MKind.text || MKind.math:
         final tp = textFor(i, ppu);
         canvas.drawRect(Rect.fromCenter(center: c, width: tp.width + 8, height: tp.height + 4), accent);
+      case MKind.brace:
+        final r = braceRect(doc, i, bounds, ppu);
+        if (r != null) canvas.drawRect(r.inflate(4), accent);
+      case MKind.polygon || MKind.star:
+        final r = Rect.fromCenter(center: c, width: i.size.width * ppu, height: i.size.width * ppu);
+        canvas..drawRect(r.inflate(3), accent)..drawCircle(r.bottomRight, 5, dot);
       default:
         final img = images[i.id];
         final w = i.size.width * ppu;

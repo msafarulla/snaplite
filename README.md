@@ -151,12 +151,18 @@ itself (no screen recording needed).
 **File › New Manim Video** opens Manim Studio: build a [Manim](https://www.manim.community) video visually,
 no code needed.
 
-- **Add** text, math (LaTeX), rectangles, circles, arrows, lines, dots, graphs (type `x^2`, `sin(x)`,
-  `sqrt(x)`…) and images from the toolbar, then **drag** them on the 16:9 stage (the dots resize, or move an
-  arrow's ends).
-- **Animate** each one in the panel on the right: how it enters (Write, Create, Fade In, Grow, Draw Border
-  Then Fill, or **Transform from Previous**, which morphs the text or math before it into this one, for
-  equation walkthroughs), what happens next (Indicate, Circumscribe, Wiggle), its run time and the pause after.
+- **Add** text, math (LaTeX), shapes (rectangle, circle, triangle, polygon, star, dot), arrows and **curved
+  arrows** (a Curve slider; arrowheads at both ends if you like), lines (curved or dashed), **braces** (around
+  the object before them, with a label), graphs (type `x^2`, `sin(x)`, `sqrt(x)`…), number lines and images,
+  then **drag** them on the 16:9 stage (the dots resize, or move an arrow's ends).
+- **Animate** each one in the panel on the right:
+  - **enters** with Write, Create, Fade In (from any side), Grow, Grow Arrow, Spin In, Draw Border Then Fill,
+    Letter by Letter, or **Transform / Fade Transform from Previous** (morphs the object before it into this
+    one, for equation walkthroughs); **Start together with the previous one** plays several at once;
+  - **easing** (Smooth, Linear, There and Back, Rush In/Out, Ease In-Out, Bounce) and run time;
+  - **Zoom the camera to it**: the camera flies in for its entrance, then back out;
+  - **then** Indicate, Circumscribe, Wiggle, Flash, Focus On or Wave; **afterwards** Move, Rotate, Scale or
+    Change Colour; and it **leaves** (Fade Out, Uncreate, Shrink Away, Unwrite) or stays.
 - **Order** them in the timeline at the bottom (drag to reorder). Pick a background colour and whether
   everything fades out at the end.
 - **Render** (⌘↩), Preview (480p) or HD (1080p): the MP4 plays when it's done and is saved to the Library.

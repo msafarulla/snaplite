@@ -28,8 +28,10 @@ void main() {
     final s = await pump(t);
     expect(s.doc.items.single.kind, MKind.text, reason: 'starter title, so Render works at once');
 
-    await t.tap(find.text('Rectangle'));
-    await t.pump();
+    await t.tap(find.text('Shapes ▾'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('Rectangle').last);
+    await t.pumpAndSettle();
     final rect = s.doc.items.last;
     expect(rect.kind, MKind.rect);
     expect(s.selected, rect.id, reason: 'a new object is selected for editing');
@@ -49,5 +51,18 @@ void main() {
     final saved = tmp.listSync().whereType<File>().where((f) => f.path.endsWith('.snapmanim')).single;
     expect(ManimDoc.decode(saved.readAsStringSync()).items.length, 2, reason: 'saved without asking');
     expect(s.doc.code(), contains('Rectangle('));
+  });
+
+  testWidgets('a curved arrow from the toolbar; its curve and animations are editable', (t) async {
+    final s = await pump(t);
+    await t.tap(find.text('Curved'));
+    await t.pumpAndSettle();
+    final arrow = s.doc.items.last;
+    expect(arrow.kind, MKind.arrow);
+    expect(arrow.curve, 60);
+    expect(find.text('Curve'), findsOneWidget, reason: 'the curve slider shows');
+    expect(find.text('Start together with the previous one'), findsOneWidget);
+    expect(find.text('Zoom the camera to it'), findsOneWidget);
+    expect(s.doc.code(), contains('CurvedArrow('));
   });
 }
