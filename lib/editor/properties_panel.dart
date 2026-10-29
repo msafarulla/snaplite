@@ -36,7 +36,7 @@ abstract class PanelHost {
 /// The right-hand panel, as in the Swift app: Styles for the current kind, then its properties.
 /// It edits the selected annotation when there is one, otherwise the defaults for the active tool.
 class PropertiesPanel extends StatelessWidget {
-  static const width = 248.0;
+  static const width = 296.0; // wide enough that a tool's options fit without scrolling
   static const colors = <(String, Color)>[
     ('Red', Color(0xFFFF3B30)), ('Orange', Color(0xFFFF9500)), ('Yellow', Color(0xFFFFCC00)), ('Green', Color(0xFF34C759)),
     ('Blue', Color(0xFF007AFF)), ('Purple', Color(0xFFAF52DE)), ('Black', Color(0xFF000000)), ('White', Color(0xFFFFFFFF)),
@@ -200,10 +200,13 @@ class PropertiesPanel extends StatelessWidget {
                 items: [for (final h in HeadSize.values) (h, h.label, StylePreview(ArrowStyle(end: ArrowHead.triangle, headSize: h)))],
                 onChanged: (h) => host.setArrowStyle(style.copyWith(headSize: h)),
               ),
-            ]),
-            _row(context, '', [
-              _PillButton(icon: Icons.swap_horiz, label: 'Swap Ends',
-                  onTap: () => host.setArrowStyle(style.copyWith(start: style.end, end: style.start))),
+              const SizedBox(width: 4),
+              IconButton(
+                tooltip: 'Swap Ends',
+                icon: const Icon(Icons.swap_horiz, size: 18),
+                visualDensity: VisualDensity.compact,
+                onPressed: () => host.setArrowStyle(style.copyWith(start: style.end, end: style.start)),
+              ),
             ]),
           ]);
         }
@@ -217,18 +220,20 @@ class PropertiesPanel extends StatelessWidget {
               onChanged: (p) => host.setArrowStyle(style.copyWith(pattern: p)),
             ),
           ]),
-          if (isLine) _check(context, 'Tapered', style.tapered, (v) => host.setArrowStyle(style.copyWith(tapered: v))),
-          _check(context, 'Outline', style.outline, (v) => host.setArrowStyle(style.copyWith(outline: v))),
-          _check(context, 'Shadow', style.shadow, (v) => host.setArrowStyle(style.copyWith(shadow: v))),
-          const SizedBox(height: 4),
-          if (isLine)
-            _row(context, '', [
+          // One row each, so the whole panel fits without scrolling
+          Wrap(spacing: 14, runSpacing: 4, children: [
+            if (isLine) _check(context, 'Tapered', style.tapered, (v) => host.setArrowStyle(style.copyWith(tapered: v)), indent: false),
+            _check(context, 'Outline', style.outline, (v) => host.setArrowStyle(style.copyWith(outline: v)), indent: false),
+            _check(context, 'Shadow', style.shadow, (v) => host.setArrowStyle(style.copyWith(shadow: v)), indent: false),
+          ]),
+          Wrap(spacing: 6, runSpacing: 4, children: [
+            if (isLine)
               Tooltip(
                 message: 'Remove all bend points (drag a + on the arrow, or double-click it, to bend it)',
                 child: _PillButton(icon: Icons.horizontal_rule, label: 'Straighten', onTap: host.selectionIsCurved ? host.straighten : null),
               ),
-            ]),
-          _row(context, '', [_PillButton(icon: Icons.restart_alt, label: 'Reset Style', onTap: host.resetStyle)]),
+            _PillButton(icon: Icons.restart_alt, label: 'Reset Style', onTap: host.resetStyle),
+          ]),
         ]);
       }
     }
@@ -240,9 +245,9 @@ class PropertiesPanel extends StatelessWidget {
         border: Border(left: BorderSide(color: t.colorScheme.outlineVariant.withValues(alpha: 0.6))),
       ),
       child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          for (final k in kids) Padding(padding: const EdgeInsets.only(bottom: 8), child: k),
+          for (final k in kids) Padding(padding: const EdgeInsets.only(bottom: 6), child: k),
         ]),
       ),
     );
@@ -343,11 +348,11 @@ class PropertiesPanel extends StatelessWidget {
   static Widget _separator(BuildContext context) =>
       Divider(height: 8, thickness: 1, color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.6));
 
-  static Widget _check(BuildContext context, String label, bool value, ValueChanged<bool> onChanged) => InkWell(
+  static Widget _check(BuildContext context, String label, bool value, ValueChanged<bool> onChanged, {bool indent = true}) => InkWell(
         borderRadius: BorderRadius.circular(6),
         onTap: () => onChanged(!value),
-        child: Row(children: [
-          const SizedBox(width: 60),
+        child: Row(mainAxisSize: indent ? MainAxisSize.max : MainAxisSize.min, children: [
+          if (indent) const SizedBox(width: 60),
           SizedBox(width: 22, height: 22, child: Checkbox(value: value, onChanged: (v) => onChanged(v ?? false),
               visualDensity: VisualDensity.compact, materialTapTargetSize: MaterialTapTargetSize.shrinkWrap)),
           const SizedBox(width: 6),
