@@ -15,7 +15,9 @@ class BuildUpGif {
   static const openingHold = Duration(milliseconds: 1000);
   static const pauseAfterEach = Duration(milliseconds: 400);
   static const finalHold = Duration(milliseconds: 2500);
-  static const maxSide = 1600.0;
+  static const maxSide = 2400.0;
+  /// GIF pixels per screen point: sharper than point size, but not the capture's full 2× (too big).
+  static const pointScale = 1.5;
 
   /// How long an annotation takes to appear: lines and outlines draw on a bit slower than pops and fades.
   static Duration appearing(Annotation a) => switch (a.shape) {
@@ -24,9 +26,10 @@ class BuildUpGif {
         _ => const Duration(milliseconds: 400),
       };
 
-  /// Output pixels per image pixel: point size (so Retina captures aren't doubled), at most [maxSide] long.
+  /// Output pixels per image pixel: [pointScale] × point size, never above the capture's own pixels, at most
+  /// [maxSide] long.
   static double outputScale(CanvasState s) =>
-      math.min(1 / s.density, maxSide / math.max(s.image.width, s.image.height)).clamp(0.01, 1.0);
+      math.min(pointScale / s.density, maxSide / math.max(s.image.width, s.image.height)).clamp(0.01, 1.0);
 
   static Future<Uint8List> render(CanvasState s) async {
     final k = outputScale(s);
