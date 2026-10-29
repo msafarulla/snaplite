@@ -2335,7 +2335,7 @@ class _ColorBar extends StatelessWidget {
               _MiniMenu<LinePattern>(
                 tooltip: 'Pattern',
                 value: st.pattern,
-                items: [for (final p in LinePattern.values) (p, p.label, StylePreview(ArrowStyle(end: ArrowHead.none, pattern: p)))],
+                items: [for (final p in LinePattern.menu) (p, p.label, StylePreview(ArrowStyle(end: ArrowHead.none, pattern: p)))],
                 onChanged: (p) => onStyle(st.copyWith(pattern: p)),
               ),
               const SizedBox(width: 4),

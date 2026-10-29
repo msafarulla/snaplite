@@ -196,7 +196,7 @@ class PropertiesPanel extends StatelessWidget {
           _row(context, 'Pattern', [
             _Dropdown<LinePattern>(
               value: style.pattern,
-              items: [for (final p in LinePattern.values) (p, p.label, StylePreview(ArrowStyle(end: ArrowHead.none, pattern: p), line: isLine))],
+              items: [for (final p in LinePattern.menu) (p, p.label, StylePreview(ArrowStyle(end: ArrowHead.none, pattern: p), line: isLine))],
               onChanged: (p) => host.setArrowStyle(style.copyWith(pattern: p)),
             ),
           ]),

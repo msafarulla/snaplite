@@ -43,6 +43,15 @@ void main() {
     expect(ArrowStyle.fromJson(style.toJson())!.pattern, LinePattern.ants);
   });
 
+  test('every pattern but solid has a marching version, listed right after it', () {
+    expect(LinePattern.menu.toSet(), LinePattern.values.toSet());
+    for (var i = 1; i < LinePattern.menu.length; i += 2) {
+      expect(LinePattern.menu[i].marches, isFalse);
+      expect(LinePattern.menu[i + 1].marches, isTrue);
+      expect(LinePattern.menu[i + 1].dashes(4), LinePattern.menu[i].dashes(4));
+    }
+  });
+
   test('dotted and dash-dot have marching versions too', () {
     expect(LinePattern.antsDotted.dashes(4), LinePattern.dotted.dashes(4));
     expect(LinePattern.antsDashDot.dashes(4), LinePattern.dashDot.dashes(4));
