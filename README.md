@@ -146,6 +146,25 @@ itself (no screen recording needed).
 | Still WhatsApp sticker | More › Copy as Still Sticker (or ⌃⌘C with no markup) | Pastes straight into a chat as a sticker |
 | Moving marching ants | Tick **Marching** on any dashed or dotted line or box, then **⌘C** | A looping GIF where only the dashes move |
 
+### Manim Studio
+
+**File › New Manim Video** opens Manim Studio: build a [Manim](https://www.manim.community) video visually,
+no code needed.
+
+- **Add** text, math (LaTeX), rectangles, circles, arrows, lines, dots, graphs (type `x^2`, `sin(x)`,
+  `sqrt(x)`…) and images from the toolbar, then **drag** them on the 16:9 stage (the dots resize, or move an
+  arrow's ends).
+- **Animate** each one in the panel on the right: how it enters (Write, Create, Fade In, Grow, Draw Border
+  Then Fill, or **Transform from Previous**, which morphs the text or math before it into this one, for
+  equation walkthroughs), what happens next (Indicate, Circumscribe, Wiggle), its run time and the pause after.
+- **Order** them in the timeline at the bottom (drag to reorder). Pick a background colour and whether
+  everything fades out at the end.
+- **Render** (⌘↩), Preview (480p) or HD (1080p): the MP4 plays when it's done and is saved to the Library.
+  **Code** shows the Manim Python SnapNow wrote, to copy into your own projects.
+
+Projects save themselves as you work (`~/Pictures/SnapNow/Manim Projects/*.snapmanim`, images included);
+**File › Open Manim Project…** opens one again. Manim and, for math, LaTeX are installed separately (below).
+
 ### Animate with Manim
 
 **File › Animate with Manim…** turns the capture into a [Manim](https://www.manim.community) scene: the
@@ -164,7 +183,14 @@ python3 -m venv ~/.local/share/snapnow/manim
 
 SnapNow uses that install first, then `manim` from Homebrew or `~/.local/bin`, and shows which one and its
 version. Render runs the scene's Python on your Mac, so only render code you trust. LaTeX isn't needed for the
-generated scenes (they use `Text`); install MacTeX if you add `MathTex` formulas.
+generated scenes (they use `Text`). Math in Manim Studio, and the numbers on graph axes, need LaTeX (asks for
+your password):
+
+```sh
+brew install --cask basictex
+sudo /Library/TeX/texbin/tlmgr update --self
+sudo /Library/TeX/texbin/tlmgr install standalone preview doublestroke relsize fundus-calligra wasysym physics dvisvgm rsfs wasy cm-super
+```
 
 ### The build-up GIF
 

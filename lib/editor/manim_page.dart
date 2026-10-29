@@ -1,14 +1,12 @@
-import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import '../app/app_controller.dart';
 import '../export/manim_scene.dart';
+import '../manim/manim_runner.dart';
 import '../model/annotation.dart';
 import '../platform/native.dart';
 
 /// Animate with Manim: the capture as a Manim scene you can edit, rendered by the Manim installed on this
-/// Mac into a GIF or MP4 that lands in the Library. SnapNow doesn't ship Manim; it finds it (see [_find]).
+/// Mac into an MP4 (or GIF) that lands in the Library. SnapNow doesn't ship Manim ([ManimRunner]).
 class ManimPage extends StatefulWidget {
   final CanvasState state;
   const ManimPage({super.key, required this.state});
@@ -18,14 +16,6 @@ class ManimPage extends StatefulWidget {
 }
 
 class _ManimPageState extends State<ManimPage> {
-  /// Where SnapNow looks for Manim, in order: its own install (README), then the usual places.
-  static final _candidates = [
-    '${Platform.environment['HOME']}/.local/share/snapnow/manim/bin/manim',
-    '/opt/homebrew/bin/manim',
-    '/usr/local/bin/manim',
-    '${Platform.environment['HOME']}/.local/bin/manim',
-  ];
-
   late final _code = TextEditingController(text: ManimScene.code(widget.state));
   final _log = StringBuffer();
   final _logScroll = ScrollController();
@@ -49,25 +39,11 @@ class _ManimPageState extends State<ManimPage> {
     super.dispose();
   }
 
-  /// The first Manim that runs, with its version (shown, so it's clear which program renders the code).
   Future<void> _find() async {
-    for (final path in _candidates) {
-      if (!File(path).existsSync()) continue;
-      try {
-        final r = await Process.run(path, ['--version'], environment: _env);
-        final v = '${r.stdout}'.trim().split('\n').last.trim();
-        if (r.exitCode == 0 && v.isNotEmpty) {
-          setState(() { _manim = path; _version = v; });
-          break;
-        }
-      } catch (_) {}
-    }
-    if (mounted) setState(() => _looked = true);
+    final m = await ManimRunner.find();
+    if (!mounted) return;
+    setState(() { _manim = m?.path; _version = m?.version; _looked = true; });
   }
-
-  /// Homebrew first on PATH: a GUI app's PATH doesn't have it, and Manim may call ffmpeg.
-  static Map<String, String> get _env =>
-      {'PATH': '/opt/homebrew/bin:/usr/local/bin:${Platform.environment['PATH'] ?? '/usr/bin:/bin'}'};
 
   void _say(String text) {
     setState(() => _log.write(text));
@@ -80,47 +56,21 @@ class _ManimPageState extends State<ManimPage> {
     final manim = _manim;
     if (manim == null || _rendering) return;
     setState(() { _rendering = true; _result = null; _log.clear(); });
-    final dir = await Directory.systemTemp.createTemp('snapnow-manim-');
-    try {
-      await File('${dir.path}/scene.py').writeAsString(_code.text);
-      await File('${dir.path}/${ManimScene.backdropFile}').writeAsBytes(await ManimScene.backdrop(widget.state));
-      final height = _hd ? 1080 : 480;
-      final width = (height * ManimScene.aspect(widget.state) / 2).round() * 2;
-      final args = ['-r', '$width,$height', '--fps', _hd ? '30' : '15', '--format', _gif ? 'gif' : 'mp4',
-        '--media_dir', '${dir.path}/media', '-o', 'SnapNow', 'scene.py', ManimScene.className];
-      _say('\$ ${manim.split('/').last} ${args.join(' ')}\n');
-      final p = _process = await Process.start(manim, args, workingDirectory: dir.path, environment: _env);
-      final done = Completer<void>();
-      var open = 2;
-      void closed() { if (--open == 0) done.complete(); }
-      p.stdout.transform(utf8.decoder).listen(_say, onDone: closed);
-      p.stderr.transform(utf8.decoder).listen(_say, onDone: closed);
-      final code = await p.exitCode;
-      await done.future;
-      _process = null;
-      if (code != 0) {
-        _say('\nManim stopped with an error (exit code $code). The message above says which line.\n');
-        return;
-      }
-      final ext = _gif ? 'gif' : 'mp4';
-      final made = Directory('${dir.path}/media').listSync(recursive: true)
-          .whereType<File>().where((f) => f.path.endsWith('/SnapNow.$ext')).firstOrNull;
-      if (made == null) {
-        _say('\nManim finished but no .$ext was written.\n');
-        return;
-      }
-      // A free name in the captures folder, so the Library shows it (and nothing is overwritten)
-      final dest = AppController.newCapturePath(prefix: 'SnapNow Manim', ext: ext);
-      await made.copy(dest);
-      AppController.instance.capturesVersion.value++;
-      setState(() => _result = dest);
-      _say('\nSaved to the Library: ${dest.split('/').last}\n');
-    } catch (e) {
-      _say('\nCouldn\'t render: $e\n');
-    } finally {
-      if (mounted) setState(() => _rendering = false);
-      try { await dir.delete(recursive: true); } catch (_) {}
-    }
+    final height = _hd ? 1080 : 480;
+    final result = await ManimRunner.render(
+      manim: manim,
+      code: _code.text,
+      className: ManimScene.className,
+      files: {ManimScene.backdropFile: await ManimScene.backdrop(widget.state)},
+      width: (height * ManimScene.aspect(widget.state) / 2).round() * 2,
+      height: height,
+      fps: _hd ? 30 : 15,
+      gif: _gif,
+      log: _say,
+      started: (p) => _process = p,
+    );
+    _process = null;
+    if (mounted) setState(() { _rendering = false; _result = result; });
   }
 
   @override
@@ -207,11 +157,7 @@ class _ManimPageState extends State<ManimPage> {
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(color: scheme.errorContainer, borderRadius: BorderRadius.circular(8)),
         child: SelectableText(
-          'Manim isn\'t installed. In Terminal:\n'
-          '  brew install cairo pango pkgconf ffmpeg\n'
-          '  python3 -m venv ~/.local/share/snapnow/manim\n'
-          '  ~/.local/share/snapnow/manim/bin/pip install manim\n'
-          'then open this page again.',
+          ManimRunner.installHelp,
           style: TextStyle(fontFamily: 'Menlo', fontSize: 12, color: scheme.onErrorContainer),
         ),
       );

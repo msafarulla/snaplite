@@ -2,6 +2,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../library/library_page.dart';
+import '../manim/manim_doc.dart';
+import '../manim/manim_studio_page.dart';
 import '../model/annotation.dart';
 import '../platform/native.dart';
 import 'app_controller.dart';
@@ -26,6 +28,56 @@ class AppMenuBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (!Platform.isMacOS) return child;
+    // Manim Studio, while open, gets its own menus
+    return ValueListenableBuilder<ManimStudioPageState?>(
+      valueListenable: ManimStudioPage.active,
+      builder: (context, studio, _) => studio != null ? _studioMenus(studio) : _menus(context),
+    );
+  }
+
+  Widget _studioMenus(ManimStudioPageState studio) {
+    PlatformMenuItem item(String label, VoidCallback? onSelected, [MenuSerializableShortcut? shortcut]) =>
+        PlatformMenuItem(label: label, onSelected: onSelected, shortcut: shortcut);
+    PlatformProvidedMenuItem? provided(PlatformProvidedMenuItemType t) =>
+        PlatformProvidedMenuItem.hasMenu(t) ? PlatformProvidedMenuItem(type: t) : null;
+    PlatformMenuItemGroup? group(List<PlatformMenuItem> members) =>
+        members.isEmpty ? null : PlatformMenuItemGroup(members: members);
+    return PlatformMenuBar(
+      menus: [
+        PlatformMenu(label: 'SnapNow', menus: [
+          ?group([?provided(PlatformProvidedMenuItemType.about)]),
+          ?group([?provided(PlatformProvidedMenuItemType.hide), ?provided(PlatformProvidedMenuItemType.quit)]),
+        ]),
+        PlatformMenu(label: 'File', menus: [
+          ?group([
+            item('New Manim Video', () => ManimStudioPage.open(studio.context)),
+            item('Open Manim Project…', () => ManimStudioPage.pickAndOpen(studio.context)),
+          ]),
+          ?group([
+            item('Save As…', studio.saveAs),
+            item('Render', studio.render, const SingleActivator(LogicalKeyboardKey.enter, meta: true)),
+            item('Show Code', studio.showCode),
+          ]),
+          ?group([item('Close Studio', () => Navigator.of(studio.context).maybePop())]),
+        ]),
+        PlatformMenu(label: 'Edit', menus: [
+          ?group([
+            item('Duplicate', studio.duplicate, const SingleActivator(LogicalKeyboardKey.keyD, meta: true)),
+            item('Delete', studio.delete),
+          ]),
+        ]),
+        PlatformMenu(label: 'Insert', menus: [
+          for (final k in MKind.values) item(k == MKind.image ? 'Image…' : k.label, () => studio.add(k)),
+        ]),
+        PlatformMenu(label: 'Window', menus: [
+          ?group([?provided(PlatformProvidedMenuItemType.minimizeWindow), ?provided(PlatformProvidedMenuItemType.zoomWindow)]),
+        ]),
+      ],
+      child: child,
+    );
+  }
+
+  Widget _menus(BuildContext context) {
     final editing = library.editing;
     final editor = AppController.instance.editorKey.currentState;
     // Editor commands while editing; grid commands otherwise
@@ -66,6 +118,10 @@ class AppMenuBar extends StatelessWidget {
             ]),
             item('Open Image…', editing ? () => ed('open') : () => Native.shell('openImage'), cmd(LogicalKeyboardKey.keyO)),
             if (!editing) item('Open Selected', () => grid('openSelected')),
+          ]),
+          ?group([
+            item('New Manim Video', () => ManimStudioPage.open(library.context)),
+            item('Open Manim Project…', () => ManimStudioPage.pickAndOpen(library.context)),
           ]),
           ?group([
             item('Close', AppController.instance.saveAndClose, cmd(LogicalKeyboardKey.keyW)),
