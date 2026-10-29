@@ -488,6 +488,13 @@ void main() {
     await tester.tap(find.descendant(of: bar, matching: find.byTooltip('Swap Ends')));
     await tester.pump();
     expect(editor.selected!.arrowStyle.start, ArrowHead.dot);
+
+    // Head size lives in the same menu, under the heads
+    await tester.tap(find.byKey(const ValueKey('snaplite-bar-end')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('${HeadSize.large.label} head').last);
+    await tester.pumpAndSettle();
+    expect(editor.selected!.arrowStyle.headSize, HeadSize.large);
   });
 
   testWidgets('after bending an arrow, the thickness slider is back (and on clicking it again)', (tester) async {

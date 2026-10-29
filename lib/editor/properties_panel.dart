@@ -178,13 +178,8 @@ class PropertiesPanel extends StatelessWidget {
             _separator(context),
             _heading(context, 'Arrowheads', small: true),
             _row(context, 'Start', [_headMenu(style, start: true)]),
-            _row(context, 'End', [_headMenu(style, start: false)]),
-            _row(context, 'Head size', [
-              _Dropdown<HeadSize>(
-                value: style.headSize,
-                items: [for (final h in HeadSize.values) (h, h.label, StylePreview(ArrowStyle(end: ArrowHead.triangle, headSize: h)))],
-                onChanged: (h) => host.setArrowStyle(style.copyWith(headSize: h)),
-              ),
+            _row(context, 'End', [
+              _headMenu(style, start: false),
               const SizedBox(width: 4),
               IconButton(
                 tooltip: 'Swap Ends',
@@ -304,16 +299,35 @@ class PropertiesPanel extends StatelessWidget {
     ];
   }
 
-  Widget _headMenu(ArrowStyle style, {required bool start}) => _Dropdown<ArrowHead>(
+  Widget _headMenu(ArrowStyle style, {required bool start}) => _Dropdown<Object>(
         value: start ? style.start : style.end,
-        items: [
-          for (final h in ArrowHead.values)
-            (h, h.label, StylePreview(start
-                ? ArrowStyle(start: h, end: ArrowHead.none, headSize: style.headSize)
-                : ArrowStyle(start: ArrowHead.none, end: h, headSize: style.headSize))),
-        ],
-        onChanged: (h) => host.setArrowStyle(start ? style.copyWith(start: h) : style.copyWith(end: h)),
+        checked: (v) => v == style.headSize,
+        items: headChoices(style, start: start),
+        onChanged: (v) => host.setArrowStyle(v is HeadSize
+            ? style.copyWith(headSize: v)
+            : start ? style.copyWith(start: v as ArrowHead) : style.copyWith(end: v as ArrowHead)),
       );
+
+  /// A head menu: the arrowheads, then the head sizes (the size applies to both ends).
+  static List<(Object, String, Widget?)> headChoices(ArrowStyle style, {required bool start}) => [
+        for (final h in ArrowHead.values)
+          (h, h.label, StylePreview(start
+              ? ArrowStyle(start: h, end: ArrowHead.none, headSize: style.headSize)
+              : ArrowStyle(start: ArrowHead.none, end: h, headSize: style.headSize))),
+        for (final h in HeadSize.values) (h, '${h.label} head', StylePreview(ArrowStyle(end: ArrowHead.triangle, headSize: h))),
+      ];
+
+  /// Menu rows with a divider where the kind of choice changes; `checked` ticks a second current choice.
+  static List<PopupMenuEntry<T>> menuEntries<T>(List<(T, String, Widget?)> items, bool Function(T)? checked) => [
+        for (var n = 0; n < items.length; n++) ...[
+          if (n > 0 && items[n].$1.runtimeType != items[n - 1].$1.runtimeType) const PopupMenuDivider(height: 9),
+          PopupMenuItem<T>(value: items[n].$1, height: 30, child: Row(mainAxisSize: MainAxisSize.min, children: [
+            if (items[n].$3 != null) ...[SizedBox(width: 48, height: 18, child: items[n].$3), const SizedBox(width: 8)],
+            Flexible(child: Text(items[n].$2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12.5))),
+            if (checked?.call(items[n].$1) ?? false) ...[const SizedBox(width: 8), const Icon(Icons.check, size: 14)],
+          ])),
+        ],
+      ];
 
   static Widget _heading(BuildContext context, String text, {bool small = false}) {
     final s = Theme.of(context).colorScheme;
@@ -352,7 +366,8 @@ class _Dropdown<T> extends StatelessWidget {
   final List<(T, String, Widget?)> items;
   final ValueChanged<T> onChanged;
   final double width;
-  const _Dropdown({required this.value, required this.items, required this.onChanged, this.width = 152});
+  final bool Function(T)? checked; // a second ticked choice (the head size in a head menu)
+  const _Dropdown({required this.value, required this.items, required this.onChanged, this.width = 152, this.checked});
 
   @override
   Widget build(BuildContext context) {
@@ -367,7 +382,7 @@ class _Dropdown<T> extends StatelessWidget {
       initialValue: value,
       onSelected: onChanged,
       position: PopupMenuPosition.under,
-      itemBuilder: (_) => [for (final i in items) PopupMenuItem<T>(value: i.$1, height: 30, child: entry(i))],
+      itemBuilder: (_) => PropertiesPanel.menuEntries(items, checked),
       child: Container(
         width: width,
         height: 28,

@@ -33,7 +33,7 @@ void main() {
   }
 
   test('Marching Ants is offered as a pattern and dashes like Dashed', () {
-    expect(LinePattern.values.last, LinePattern.ants);
+    expect(LinePattern.values.indexOf(LinePattern.ants), 5, reason: 'saved by index');
     expect(LinePattern.ants.label, 'Marching Ants');
     expect(LinePattern.ants.dashes(4), LinePattern.dashed.dashes(4));
     expect(LinePattern.ants.marches, isTrue);
@@ -41,6 +41,16 @@ void main() {
     // Saved styles keep it (and older files without it still load)
     const style = ArrowStyle(pattern: LinePattern.ants);
     expect(ArrowStyle.fromJson(style.toJson())!.pattern, LinePattern.ants);
+  });
+
+  test('dotted and dash-dot have marching versions too', () {
+    expect(LinePattern.antsDotted.dashes(4), LinePattern.dotted.dashes(4));
+    expect(LinePattern.antsDashDot.dashes(4), LinePattern.dashDot.dashes(4));
+    expect(LinePattern.antsDotted.marches && LinePattern.antsDashDot.marches, isTrue);
+    expect(LinePattern.dotted.marches || LinePattern.dashDot.marches, isFalse);
+    for (final p in [LinePattern.antsDotted, LinePattern.antsDashDot]) {
+      expect(ArrowStyle.fromJson(ArrowStyle(pattern: p).toJson())!.pattern, p);
+    }
   });
 
   testWidgets('the dashes move with the march; plain dashes never do', (tester) async {

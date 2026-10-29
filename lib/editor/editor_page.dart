@@ -2252,9 +2252,8 @@ class _ThicknessCard extends StatelessWidget {
 /// for arrows and lines a second row with the arrowheads, head size, Swap Ends and the line pattern.
 class _ColorBar extends StatelessWidget {
   static const _dot = 20.0, _gap = 6.0, _pad = 8.0, _menu = 62.0, _row2 = 28.0;
-  static double widthFor(bool lines) => lines
-      ? _pad * 2 + 4 * _menu + 4 * 4 + 28
-      : _pad * 2 + (PropertiesPanel.colors.length + 1) * (_dot + _gap) - _gap;
+  static double widthFor(bool lines) => math.max(_pad * 2 + (PropertiesPanel.colors.length + 1) * (_dot + _gap) - _gap,
+      lines ? _pad * 2 + 3 * _menu + 3 * 4 + 28 : 0);
   static double heightFor(bool lines) => _dot + _pad * 2 + (lines ? _row2 + 6 : 0);
   final Color selected;
   final ValueChanged<Color> onPick;
@@ -2320,31 +2319,19 @@ class _ColorBar extends StatelessWidget {
           SizedBox(
             height: _row2,
             child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-              _MiniMenu<ArrowHead>(
-                key: const ValueKey('snaplite-bar-start'),
-                tooltip: 'Start',
-                value: st.start,
-                items: [for (final h in ArrowHead.values) (h, h.label,
-                    StylePreview(ArrowStyle(start: h, end: ArrowHead.none, headSize: st.headSize)))],
-                onChanged: (h) => onStyle(st.copyWith(start: h)),
-              ),
-              const SizedBox(width: 4),
-              _MiniMenu<ArrowHead>(
-                key: const ValueKey('snaplite-bar-end'),
-                tooltip: 'End',
-                value: st.end,
-                items: [for (final h in ArrowHead.values) (h, h.label,
-                    StylePreview(ArrowStyle(start: ArrowHead.none, end: h, headSize: st.headSize)))],
-                onChanged: (h) => onStyle(st.copyWith(end: h)),
-              ),
-              const SizedBox(width: 4),
-              _MiniMenu<HeadSize>(
-                tooltip: 'Head size',
-                value: st.headSize,
-                items: [for (final h in HeadSize.values) (h, h.label, StylePreview(ArrowStyle(end: ArrowHead.triangle, headSize: h)))],
-                onChanged: (h) => onStyle(st.copyWith(headSize: h)),
-              ),
-              const SizedBox(width: 4),
+              for (final atStart in [true, false]) ...[
+                _MiniMenu<Object>(
+                  key: ValueKey(atStart ? 'snaplite-bar-start' : 'snaplite-bar-end'),
+                  tooltip: atStart ? 'Start (and head size)' : 'End (and head size)',
+                  value: atStart ? st.start : st.end,
+                  checked: (v) => v == st.headSize,
+                  items: PropertiesPanel.headChoices(st, start: atStart),
+                  onChanged: (v) => onStyle(v is HeadSize
+                      ? st.copyWith(headSize: v)
+                      : atStart ? st.copyWith(start: v as ArrowHead) : st.copyWith(end: v as ArrowHead)),
+                ),
+                const SizedBox(width: 4),
+              ],
               _MiniMenu<LinePattern>(
                 tooltip: 'Pattern',
                 value: st.pattern,
@@ -2373,9 +2360,11 @@ class _ColorBar extends StatelessWidget {
 class _MiniMenu<T> extends StatelessWidget {
   final String tooltip;
   final T value;
-  final List<(T, String, Widget)> items;
+  final List<(T, String, Widget?)> items;
   final ValueChanged<T> onChanged;
-  const _MiniMenu({super.key, required this.tooltip, required this.value, required this.items, required this.onChanged});
+  final bool Function(T)? checked; // a second ticked choice (the head size in a head menu)
+  const _MiniMenu({super.key, required this.tooltip, required this.value, required this.items, required this.onChanged,
+      this.checked});
 
   @override
   Widget build(BuildContext context) {
@@ -2386,14 +2375,7 @@ class _MiniMenu<T> extends StatelessWidget {
       initialValue: value,
       onSelected: onChanged,
       position: PopupMenuPosition.under,
-      itemBuilder: (_) => [
-        for (final i in items)
-          PopupMenuItem<T>(value: i.$1, height: 30, child: Row(mainAxisSize: MainAxisSize.min, children: [
-            SizedBox(width: 48, height: 18, child: i.$3),
-            const SizedBox(width: 8),
-            Text(i.$2, style: const TextStyle(fontSize: 12.5)),
-          ])),
-      ],
+      itemBuilder: (_) => PropertiesPanel.menuEntries(items, checked),
       child: Container(
         width: _ColorBar._menu,
         height: _ColorBar._row2,
@@ -2404,7 +2386,7 @@ class _MiniMenu<T> extends StatelessWidget {
           border: Border.all(color: s.outlineVariant),
         ),
         child: Row(children: [
-          Expanded(child: FittedBox(child: SizedBox(width: 48, height: 18, child: current.$3))),
+          Expanded(child: FittedBox(child: SizedBox(width: 48, height: 18, child: current.$3 ?? Text(current.$2)))),
           Icon(Icons.unfold_more, size: 12, color: s.onSurfaceVariant),
         ]),
       ),
