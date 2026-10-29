@@ -619,10 +619,15 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     final big = rect.width > 3 && rect.height > 3;
     Shape? shape;
     switch (_tool) {
-      case Tool.arrow:
-        if ((b - a).distance > 4) shape = ArrowShape(a, b, points: _bends(b));
-      case Tool.line:
-        if ((b - a).distance > 4) shape = LineShape(a, b, points: _bends(b));
+      case Tool.arrow || Tool.line:
+        final f = _follow(a, b);
+        if (f != null) {
+          shape = _tool == Tool.arrow
+              ? ArrowShape(f.from, f.to, points: f.points, tangents: f.tangents)
+              : LineShape(f.from, f.to, points: f.points, tangents: f.tangents);
+        } else if ((b - a).distance > 4) {
+          shape = _tool == Tool.arrow ? ArrowShape(a, b) : LineShape(a, b);
+        }
       case Tool.box:
         if (big) shape = RectShape(rect);
       case Tool.ellipse:
@@ -1660,7 +1665,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
                         tool: _tool, color: _color, size: _size, scale: scale,
                         style: kind == null ? ArrowStyle.arrow : _styleFor(kind),
                         createStart: _createStart, createCurrent: _createCurrent, penPoints: _penPoints,
-                        bends: _createCurrent == null ? const [] : _bends(_createCurrent!),
+                        follow: _createStart == null || _createCurrent == null ? null : _follow(_createStart!, _createCurrent!),
                         canvasChrome: _showsCanvasHandles || _canvasDrag != null,
                         ants: _copied ? _ants : null,
                         march: _march,
@@ -1716,13 +1721,12 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     );
   }
 
-  /// The bend points that make a new arrow or line follow the dragged path (none when not following):
-  /// the trail smoothed (each point averaged with its neighbours, which irons out hand jitter), then thinned
-  /// (Ramer-Douglas-Peucker, ~10 screen points of tolerance) to at most 6 bends, so the curve through them is
-  /// smooth and each one stays draggable.
-  List<Offset> _bends(Offset end) {
+  /// The path a new arrow or line takes when it follows the drag (null when not following, or too short):
+  /// a true circular arc when the drag is close to one (anything curved one way), otherwise the drag smoothed
+  /// (each point averaged with its neighbours) and thinned to at most 6 bends.
+  ({Offset from, Offset to, List<Offset> points, List<Offset?> tangents})? _follow(Offset start, Offset end) {
     final t = _trail;
-    if (t == null || t.length < 3) return const [];
+    if (t == null || t.length < 3) return null;
     final raw = [...t, end];
     // Moving average over ±5 points; the ends stay where they are
     const k = 5;
@@ -1740,13 +1744,68 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
             return sum / (to - from + 1).toDouble();
           }(),
     ];
+    final arc = _arc(pts);
+    if (arc != null) return arc;
     var eps = 10 / _viewScale;
     List<Offset> kept;
     do {
       kept = _simplify(pts, eps);
       eps *= 1.4;
     } while (kept.length > 8);
-    return kept.sublist(1, kept.length - 1);
+    return (from: start, to: end, points: kept.sublist(1, kept.length - 1), tangents: const <Offset?>[]);
+  }
+
+  /// A circular arc through the drag, if it's close to one: a least-squares circle (Kåsa) that the points
+  /// stay within 7% of, bending at least 25°. Drawn as Bézier pieces of at most 90° whose handles are the
+  /// circle's (4/3·tan(θ/4)·r), so it's a true arc; the ends sit on the circle.
+  ({Offset from, Offset to, List<Offset> points, List<Offset?> tangents})? _arc(List<Offset> pts) {
+    final n = pts.length;
+    if (n < 5) return null;
+    // Solve x² + y² + Dx + Ey + F = 0 by least squares (normal equations, 3×3)
+    var sxx = 0.0, sxy = 0.0, syy = 0.0, sx = 0.0, sy = 0.0, sxz = 0.0, syz = 0.0, sz = 0.0;
+    final o = pts.first; // work relative to the start, for precision
+    for (final q in pts) {
+      final x = q.dx - o.dx, y = q.dy - o.dy, z = x * x + y * y;
+      sxx += x * x; sxy += x * y; syy += y * y; sx += x; sy += y; sxz += x * z; syz += y * z; sz += z;
+    }
+    final m = [[sxx, sxy, sx], [sxy, syy, sy], [sx, sy, n.toDouble()]];
+    final rhs = [-sxz, -syz, -sz];
+    double det3(List<List<double>> a) =>
+        a[0][0] * (a[1][1] * a[2][2] - a[1][2] * a[2][1]) - a[0][1] * (a[1][0] * a[2][2] - a[1][2] * a[2][0]) +
+        a[0][2] * (a[1][0] * a[2][1] - a[1][1] * a[2][0]);
+    final d = det3(m);
+    if (d.abs() < 1e-9) return null;
+    List<List<double>> col(int c) => [for (var r = 0; r < 3; r++) [for (var j = 0; j < 3; j++) j == c ? rhs[r] : m[r][j]]];
+    final dd = det3(col(0)) / d, ee = det3(col(1)) / d, ff = det3(col(2)) / d;
+    final c = o + Offset(-dd / 2, -ee / 2);
+    final r2 = dd * dd / 4 + ee * ee / 4 - ff;
+    if (r2 <= 0) return null;
+    final r = math.sqrt(r2);
+    var err = 0.0;
+    for (final q in pts) {
+      final e = (q - c).distance - r;
+      err += e * e;
+    }
+    if (math.sqrt(err / n) > r * 0.07) return null;
+
+    // Which way round, and how far: from the start's angle to the end's, the way the middle of the drag went
+    double ang(Offset q) => math.atan2(q.dy - c.dy, q.dx - c.dx);
+    double wrap(double x) => (x % (2 * math.pi) + 2 * math.pi) % (2 * math.pi);
+    final a0 = ang(pts.first), a1 = ang(pts.last), am = ang(pts[n ~/ 2]);
+    final ccw = wrap(a1 - a0);
+    final sweep = wrap(am - a0) < ccw ? ccw : ccw - 2 * math.pi;
+    if (sweep.abs() < 25 * math.pi / 180 || sweep.abs() > 350 * math.pi / 180) return null;
+
+    final pieces = (sweep.abs() / (math.pi / 2)).ceil();
+    final step = sweep / pieces;
+    final len = 4 * r * math.tan(step.abs() / 4); // |tangent| = 3 × the Bézier handle
+    final dir = sweep.sign;
+    final on = [for (var i = 0; i <= pieces; i++) c + Offset(math.cos(a0 + step * i), math.sin(a0 + step * i)) * r];
+    final tg = <Offset?>[
+      for (var i = 0; i <= pieces; i++)
+        Offset(-math.sin(a0 + step * i), math.cos(a0 + step * i)) * (len * dir),
+    ];
+    return (from: on.first, to: on.last, points: on.sublist(1, on.length - 1), tangents: tg);
   }
 
   static List<Offset> _simplify(List<Offset> pts, double eps) {
@@ -2107,7 +2166,7 @@ class _PreviewPainter extends CustomPainter {
   final double scale;
   final Offset? createStart, createCurrent;
   final List<Offset>? penPoints;
-  final List<Offset> bends; // a new arrow's or line's bend points while it follows the drag
+  final ({Offset from, Offset to, List<Offset> points, List<Offset?> tangents})? follow; // Curve: the path so far
   final bool canvasChrome;
   final ValueNotifier<double>? ants;
   final ValueNotifier<double> march;
@@ -2116,7 +2175,7 @@ class _PreviewPainter extends CustomPainter {
   final List<Guide> guides;
 
   _PreviewPainter({required this.base, required this.origin, required this.tool, required this.color, required this.size,
-      required this.scale, required this.style, this.createStart, this.createCurrent, this.penPoints, this.bends = const [],
+      required this.scale, required this.style, this.createStart, this.createCurrent, this.penPoints, this.follow,
       this.canvasChrome = false, this.ants, required this.march, this.canvasResize, this.boundsOfSelection, this.guides = const []})
       : super(repaint: Listenable.merge([ants, march]));
 
@@ -2142,9 +2201,11 @@ class _PreviewPainter extends CustomPainter {
       final a = createStart!, b = createCurrent!, r = Rect.fromPoints(a, b);
       switch (tool) {
         case Tool.arrow:
-          CanvasPainter.drawAnnotation(canvas, ann(ArrowShape(a, b, points: bends)));
+          final f = follow;
+          CanvasPainter.drawAnnotation(canvas, ann(f == null ? ArrowShape(a, b) : ArrowShape(f.from, f.to, points: f.points, tangents: f.tangents)));
         case Tool.line:
-          CanvasPainter.drawAnnotation(canvas, ann(LineShape(a, b, points: bends)));
+          final f = follow;
+          CanvasPainter.drawAnnotation(canvas, ann(f == null ? LineShape(a, b) : LineShape(f.from, f.to, points: f.points, tangents: f.tangents)));
         case Tool.box:
           CanvasPainter.drawAnnotation(canvas, ann(RectShape(r)));
         case Tool.ellipse:
