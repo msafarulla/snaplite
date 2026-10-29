@@ -59,7 +59,6 @@ class AppController with TrayListener, WindowListener {
     Native.init();
     Native.onOpenEditor = openEditor;
     Native.onShowLibrary = showLibrary;
-    Native.onSaveAndHide = saveAndClose;
     Native.onCapturesChanged = () => capturesVersion.value++;
     Native.onAppearanceChanged = (choice) => appearance.value = choice;
     appearance.value = await Native.getString('appearance') ?? 'glass';

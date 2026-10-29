@@ -18,12 +18,16 @@ class MainFlutterWindow: NSWindow {
     super.awakeFromNib()
 
     // Clicking a full-screen app leaves an accessory app's window floating in that app's Space (it can't go
-    // behind), so the editor saves and hides instead, as Esc does. Not when pinned (on top on purpose).
+    // behind), so the editor steps aside instead: off screen but still open, in ⌘-Tab and the Dock, and back
+    // as it was when SnapNow is switched to again. Not when pinned (on top on purpose).
     NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
       // Checked a few times as the other app comes forward, so it hides as soon as that's clear
       for delay in [0.03, 0.1, 0.2, 0.4] {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { self?.hideIfFloatingOverFullScreenApp() }
       }
+    }
+    NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+      if DockPresence.shared.parked { self?.makeKeyAndOrderFront(nil) }
     }
   }
 
@@ -41,8 +45,8 @@ class MainFlutterWindow: NSWindow {
       return r.width >= screen.width && r.height >= screen.height * 0.85
     }
     if fullScreen {
-      orderOut(nil)   // off screen right away; Dart then saves any edits (its hide is a no-op by then)
-      SnapLiteNative.shared?.invoke("saveAndHide")
+      DockPresence.shared.parked = true   // still counts as open, so SnapNow stays in ⌘-Tab
+      orderOut(nil)
     }
   }
 
@@ -53,6 +57,7 @@ class MainFlutterWindow: NSWindow {
     // Show as a regular app: an accessory (menu bar) app's window opens inside a full-screen app's Space and
     // floats over it, so clicking the full-screen app couldn't send the editor behind. Not at launch, where
     // the window is ordered once and hidden straight away.
+    if place != .out { DockPresence.shared.parked = false }
     if launched && place != .out && !isVisible { DockPresence.shared.becomeRegular() }
     launched = true
     super.order(place, relativeTo: otherWin)
@@ -76,6 +81,9 @@ final class DockPresence {
         }
     }
 
+    /// The editor stepped aside from a full-screen app's Space: hidden, but still open.
+    var parked = false
+
     /// Right away, before a window is shown (update() would only catch up after it's on screen).
     func becomeRegular() {
         if NSApp.activationPolicy() != .regular { NSApp.setActivationPolicy(.regular) }
@@ -84,7 +92,7 @@ final class DockPresence {
     /// Deferred one turn so a closing or hiding window has left the screen before it's counted.
     func update() {
         DispatchQueue.main.async {
-            let open = NSApp.windows.contains { w in
+            let open = self.parked || NSApp.windows.contains { w in
                 w.styleMask.contains(.titled) && !(w is NSPanel) && (w.level == .normal || w.level == .floating) // floating = pinned
                     && (w.isVisible || w.isMiniaturized)
             }

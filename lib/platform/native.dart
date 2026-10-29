@@ -8,7 +8,6 @@ class Native {
   static void Function(String? path)? onRecordingFinished;
   static void Function(String path)? onOpenEditor;
   static void Function()? onShowLibrary;
-  static void Function()? onSaveAndHide; // the window got stuck over a full-screen app
   static void Function()? onCapturesChanged;
   static void Function(String choice)? onAppearanceChanged;
 
@@ -18,7 +17,6 @@ class Native {
         case 'recordingFinished': onRecordingFinished?.call(call.arguments as String?);
         case 'openEditor': onOpenEditor?.call(call.arguments as String);
         case 'showLibrary': onShowLibrary?.call();
-        case 'saveAndHide': onSaveAndHide?.call();
         case 'capturesChanged': onCapturesChanged?.call();
         case 'colorPicked': onColorPicked?.call(call.arguments as int);
         case 'appearanceChanged': onAppearanceChanged?.call(call.arguments as String);
