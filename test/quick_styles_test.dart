@@ -4,16 +4,18 @@ import 'package:snaplite_flutter/model/annotation.dart';
 
 void main() {
   const mine = ArrowStyle(end: ArrowHead.swept, tapered: true, headSize: HeadSize.large);
+  const red = 0xE8332A;
 
-  test('the first row is exactly my arrow style, in the theme colours', () {
-    final tiles = QuickStyles.presets(QuickKind.arrow, current: mine, size: StrokeSize.large);
-    final firstRow = tiles.take(4).toList();
-    expect(firstRow.every((q) => q.style == mine && q.size == StrokeSize.large), isTrue);
-    expect(firstRow.map((q) => q.color).toSet().length, 4, reason: 'four theme colours');
+  test('the first tile is exactly my arrow style, and every tile is in my colour, once', () {
+    final tiles = QuickStyles.presets(QuickKind.arrow, color: red, current: mine, size: StrokeSize.large);
+    expect(tiles.first.style, mine);
+    expect(tiles.first.size, StrokeSize.large);
+    expect(tiles.every((q) => q.color == red), isTrue, reason: 'no colour variants');
+    expect(tiles.map((q) => (q.size, q.style)).toSet().length, tiles.length, reason: 'each look shown once');
   });
 
-  test('the other rows use my arrowhead and head size instead of the plain triangle', () {
-    final tiles = QuickStyles.presets(QuickKind.arrow, current: mine);
+  test('the other tiles use my arrowhead and head size instead of the plain triangle', () {
+    final tiles = QuickStyles.presets(QuickKind.arrow, color: red, current: mine);
     expect(tiles.where((q) => q.style.end == ArrowHead.triangle), isEmpty, reason: 'no plain triangles left');
     expect(tiles.where((q) => q.style.start == ArrowHead.triangle), isEmpty, reason: 'double-ended uses my head too');
     expect(tiles.every((q) => q.style.headSize == HeadSize.large), isTrue);
@@ -22,7 +24,7 @@ void main() {
   });
 
   test('changing my choice changes the tiles', () {
-    final dot = QuickStyles.presets(QuickKind.arrow, current: const ArrowStyle(end: ArrowHead.dot));
+    final dot = QuickStyles.presets(QuickKind.arrow, color: red, current: const ArrowStyle(end: ArrowHead.dot));
     expect(dot.first.style.end, ArrowHead.dot);
     expect(dot.where((q) => q.style.end == ArrowHead.swept && !q.style.outline), isEmpty);
   });

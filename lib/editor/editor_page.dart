@@ -1458,9 +1458,6 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     setState(() {});
   }
 
-  @override
-  void quickSetChanged() => setState(() {});
-
   /// Restyles the selection: one undo step normally; while it is being typed into, part of the typing
   /// session (and the text field keeps the keyboard).
   void _restyleSelected(Annotation next) {

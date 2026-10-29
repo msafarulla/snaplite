@@ -54,22 +54,13 @@ class QuickStyle {
   int get hashCode => Object.hash(color, size, style);
 }
 
-/// Styles come in sets: each row is one look, repeated in the set's four colors.
+/// Built-in looks, one tile each in the current color (the Color row picks the color), plus your saved ones.
 class QuickStyles {
-  static const sets = <(String, List<int>)>[
-    ('Starter', [0xE8332A, 0x56B947, 0x3B8EEA, 0xF5D33A]),
-    ('Bold', [0xFF7A00, 0x8E44EF, 0x1E1E1E, 0xFFFFFF]),
-    ('Muted', [0xB5474B, 0x4E8A6E, 0x51708F, 0x9A7B4F]),
-    ('Tokyo Night', [0xF7768E, 0x9ECE6A, 0x7AA2F7, 0xE0AF68]),
-  ];
-  static const mine = 'My Styles';
-  static const _setKey = 'quickStyleSet', _savedKey = 'myQuickStyles';
+  static const _savedKey = 'myQuickStyles';
 
-  static String currentSet = sets.first.$1;
   static Map<String, List<QuickStyle>> _saved = {};
 
   static Future<void> load() async {
-    currentSet = await Native.getString(_setKey) ?? sets.first.$1;
     final raw = await Native.getDataString(_savedKey);
     if (raw == null) return;
     try {
@@ -79,11 +70,6 @@ class QuickStyles {
           e.key: [for (final j in (e.value as List)) ?QuickStyle.fromJson(j)],
       };
     } catch (_) {}
-  }
-
-  static Future<void> setCurrent(String name) async {
-    currentSet = name;
-    await Native.setString(_setKey, name);
   }
 
   static List<(StrokeSize, ArrowStyle)> _rows(QuickKind kind) => switch (kind) {
@@ -113,17 +99,13 @@ class QuickStyles {
         QuickKind.highlight => const [(StrokeSize.medium, ArrowStyle.arrow)],
       };
 
-  /// The theme set shown above My Styles ("My Styles" saved by older versions falls back to the first set).
-  static String get themeSet => sets.any((s) => s.$1 == currentSet) ? currentSet : sets.first.$1;
-
   /// Your own saved styles for a kind (newest first).
   static List<QuickStyle> saved(QuickKind kind) => _saved[kind.name] ?? const [];
 
-  /// The theme's styles, built around your own current look (`current` / `size`): the first row is exactly
-  /// your style in the theme's four colours, and the other rows keep their variation (dashes, outline,
-  /// double ends…) but use your arrowheads instead of the plain triangle. Text kinds are unchanged.
-  static List<QuickStyle> presets(QuickKind kind, {ArrowStyle? current, StrokeSize? size}) {
-    final colors = sets.firstWhere((s) => s.$1 == themeSet).$2;
+  /// The built-in looks in [color], built around your own current look (`current` / `size`): the first is
+  /// exactly your style, and the others keep their variation (dashes, outline, double ends…) but use your
+  /// arrowheads instead of the plain triangle. Text kinds are unchanged.
+  static List<QuickStyle> presets(QuickKind kind, {required int color, ArrowStyle? current, StrokeSize? size}) {
     var rows = _rows(kind);
     final usesLines = kind == QuickKind.arrow || kind == QuickKind.line || kind == QuickKind.shape;
     if (current != null && usesLines) {
@@ -141,7 +123,7 @@ class QuickStyles {
           if (personal(r) != current) (s, personal(r)),
       ];
     }
-    return [for (final (size, style) in rows) for (final c in colors) QuickStyle(c, size, style)];
+    return [for (final (size, style) in rows) QuickStyle(color, size, style)];
   }
 
   static Future<void> save(QuickStyle q, QuickKind kind) async {

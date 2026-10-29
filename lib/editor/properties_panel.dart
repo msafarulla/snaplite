@@ -25,7 +25,6 @@ abstract class PanelHost {
   void copyAllText();
   void saveCurrentStyle();
   void clearSavedStyles();
-  void quickSetChanged();
   bool get isTextual; // Text or Callout (selected, or the active tool)
   bool get isCallout;
   TextFormat get textFormat;
@@ -92,15 +91,9 @@ class PropertiesPanel extends StatelessWidget {
 
     if (kind != null) {
       kids.addAll([
-        _heading(context, 'Styles'),
-        _row(context, 'Theme', [
-          _Dropdown<String>(
-            width: 128,
-            value: QuickStyles.themeSet,
-            items: [for (final s in QuickStyles.sets) (s.$1, s.$1, null)],
-            onChanged: (v) async { await QuickStyles.setCurrent(v); host.quickSetChanged(); },
-          ),
-          const SizedBox(width: 4),
+        Row(children: [
+          _heading(context, 'Styles'),
+          const Spacer(),
           PopupMenuButton<String>(
             tooltip: 'My Styles',
             icon: const Icon(Icons.settings_outlined, size: 18),
@@ -114,7 +107,7 @@ class PropertiesPanel extends StatelessWidget {
           ),
         ]),
       ]);
-      // The theme's built-in styles, then My Styles (your own saved looks) right below
+      // The built-in styles in the current color, then My Styles (your own saved looks) right below
       final current = QuickStyle(host.color.toARGB32() & 0xFFFFFF, host.size,
           host.styleKind != null ? host.currentArrowStyle : ArrowStyle.arrow);
       bool isCurrent(QuickStyle q) =>
@@ -127,7 +120,7 @@ class PropertiesPanel extends StatelessWidget {
         _ => host.tool,
       };
       kids.add(Wrap(spacing: 4, runSpacing: 4, children: [
-        for (final q in QuickStyles.presets(kind, current: host.styleKind != null ? host.currentArrowStyle : null, size: host.size))
+        for (final q in QuickStyles.presets(kind, color: current.color, current: host.styleKind != null ? host.currentArrowStyle : null, size: host.size))
           _QuickTile(q: q, kind: kind, sample: sample, current: isCurrent(q), onTap: () => host.applyQuickStyle(q)),
       ]));
       final mine = QuickStyles.saved(kind);
