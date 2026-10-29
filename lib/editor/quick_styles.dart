@@ -80,12 +80,14 @@ class QuickStyles {
             (StrokeSize.small, ArrowStyle(start: ArrowHead.bar, end: ArrowHead.triangle)),
             (StrokeSize.medium, ArrowStyle(end: ArrowHead.swept, outline: true)),
             (StrokeSize.medium, ArrowStyle(start: ArrowHead.triangle, end: ArrowHead.triangle)),
+            (StrokeSize.large, ArrowStyle(border: true)),   // bold, with a darker edge (route-map style)
           ],
         QuickKind.line => const [
             (StrokeSize.medium, ArrowStyle.line),
             (StrokeSize.small, ArrowStyle(end: ArrowHead.none, pattern: LinePattern.dashed)),
             (StrokeSize.medium, ArrowStyle(end: ArrowHead.none, pattern: LinePattern.dotted)),
             (StrokeSize.small, ArrowStyle(start: ArrowHead.dot, end: ArrowHead.dot)),
+            (StrokeSize.large, ArrowStyle(end: ArrowHead.none, border: true)),
           ],
         QuickKind.shape => const [
             (StrokeSize.medium, ArrowStyle.shape),

@@ -212,6 +212,11 @@ class PropertiesPanel extends StatelessWidget {
             if (isLine) _check(context, 'Tapered', style.tapered, (v) => host.setArrowStyle(style.copyWith(tapered: v)), indent: false),
             _check(context, 'Outline', style.outline, (v) => host.setArrowStyle(style.copyWith(outline: v)), indent: false),
             _check(context, 'Shadow', style.shadow, (v) => host.setArrowStyle(style.copyWith(shadow: v)), indent: false),
+            Tooltip(
+              message: 'A darker edge in the line\'s own colour',
+              waitDuration: const Duration(milliseconds: 700),
+              child: _check(context, 'Border', style.border, (v) => host.setArrowStyle(style.copyWith(border: v)), indent: false),
+            ),
           ]),
           Wrap(spacing: 6, runSpacing: 4, children: [
             if (isLine)

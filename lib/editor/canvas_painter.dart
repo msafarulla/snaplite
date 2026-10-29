@@ -333,6 +333,13 @@ class CanvasPainter extends CustomPainter {
     return hsv.value > 0.75 && hsv.saturation < 0.6 ? Colors.black : Colors.white;
   }
 
+  /// The Border effect's edge: the same hue, darker (a lighter grey for black, so it still shows).
+  static Color darker(Color c) {
+    final hsl = HSLColor.fromColor(c);
+    if (hsl.lightness < 0.15) return const Color(0xFF555555);
+    return hsl.withLightness((hsl.lightness * 0.55).clamp(0.0, 1.0)).toColor();
+  }
+
   /// `path` cut into dashes (near-zero dashes become dots under round caps).
   static Path dashed(Path path, List<double>? dashes, {double phase = 0}) {
     if (dashes == null) return path;
@@ -363,17 +370,23 @@ class CanvasPainter extends CustomPainter {
   /// `render` covers) keeps the shadow's blur layer to that area instead of the whole canvas, which is slow.
   static void _styled(Canvas canvas, ArrowStyle style, Color color, double outlineWidth,
       void Function(Color paint, double extra) render, {Rect? bounds}) {
+    // Border: a darker edge of the line's own colour (about a fifth of the outline's reach, as in route maps);
+    // the contrast outline, when on too, goes outside it
+    final edge = style.border ? math.max(1.0, outlineWidth * 0.55) : 0.0;
+    void paintLayers() {
+      if (style.outline) render(contrast(color), outlineWidth + edge);
+      if (style.border) render(darker(color), edge);
+      render(color, 0);
+    }
     if (style.shadow) {
       canvas.saveLayer(bounds?.inflate(outlineWidth * 2 + 8), Paint()
         ..colorFilter = ColorFilter.mode(Colors.black.withValues(alpha: 0.4), BlendMode.srcIn)
         ..imageFilter = ui.ImageFilter.blur(sigmaX: 1.6, sigmaY: 1.6));
       canvas.translate(1.5, 1.5);
-      if (style.outline) render(contrast(color), outlineWidth);
-      render(color, 0);
+      paintLayers();
       canvas.restore();
     }
-    if (style.outline) render(contrast(color), outlineWidth);
-    render(color, 0);
+    paintLayers();
   }
 
   static Paint _stroke(Color c, double width) => Paint()
