@@ -283,14 +283,6 @@ private final class RegionView: NSView {
         NSColor.black.withAlphaComponent(0.4).setFill()
         dim.fill()
 
-        if let f = focus {
-            let border = NSBezierPath(rect: f.insetBy(dx: 1, dy: 1))
-            border.lineWidth = 2.5
-            border.setLineDash([7, 5], count: 2, phase: 0)
-            Self.orange.setStroke()
-            border.stroke()
-        }
-
         let m = CGPoint(x: capture.mouse.x - origin.x, y: capture.mouse.y - origin.y)
         guard bounds.contains(m) else { return }
 
@@ -304,7 +296,10 @@ private final class RegionView: NSView {
             lines.stroke()
         }
 
-        let size = focus.map { "\(Int($0.width.rounded())) x \(Int($0.height.rounded()))" } ?? "\(Int(m.x)), \(Int(bounds.height - m.y))"
+        // The selection's size while dragging, otherwise where the cursor is (points from the screen's top-left)
+        let size = capture.isDragging
+            ? focus.map { "\(Int($0.width.rounded())) x \(Int($0.height.rounded()))" } ?? ""
+            : "\(Int(m.x)), \(Int(bounds.height - m.y))"
         let loupeRect = drawLoupe(at: m, ctx: ctx, label: size)
         if capture.dragStart == nil { hint("Click, hold, and drag to select region", beside: loupeRect) }
     }
