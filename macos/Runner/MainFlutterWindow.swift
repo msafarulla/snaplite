@@ -16,6 +16,28 @@ class MainFlutterWindow: NSWindow {
     native = SnapLiteNative(messenger: flutterViewController.engine.binaryMessenger)
 
     super.awakeFromNib()
+
+    // Clicking a full-screen app leaves an accessory app's window floating in that app's Space (it can't go
+    // behind), so the editor saves and hides instead, as Esc does. Not when pinned (on top on purpose).
+    NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self?.hideIfFloatingOverFullScreenApp() }
+    }
+  }
+
+  /// Still the top window although a full-screen app is now active: we're stuck over it.
+  private func hideIfFloatingOverFullScreenApp() {
+    guard isVisible, level == .normal, !NSApp.isActive,
+          let front = NSWorkspace.shared.frontmostApplication?.processIdentifier,
+          let screen = screen?.frame else { return }
+    let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+    let normal = windows.filter { ($0[kCGWindowLayer as String] as? Int) == 0 }
+    guard (normal.first?[kCGWindowNumber as String] as? Int) == windowNumber else { return }
+    let fullScreen = normal.contains { w in
+      guard (w[kCGWindowOwnerPID as String] as? pid_t) == front,
+            let b = w[kCGWindowBounds as String] as? NSDictionary, let r = CGRect(dictionaryRepresentation: b) else { return false }
+      return r.width >= screen.width && r.height >= screen.height * 0.85
+    }
+    if fullScreen { SnapLiteNative.shared?.invoke("saveAndHide") }
   }
 
   // Menu bar app: the editor window starts hidden (window_manager's pattern, so the engine still starts).
