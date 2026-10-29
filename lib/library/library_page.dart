@@ -87,7 +87,7 @@ class LibraryPageState extends State<LibraryPage> {
 
   /// Enters (or switches within) edit mode, after offering to save unsaved edits.
   Future<void> openForEditing(String path) async {
-    if (_editing && _editingPath == path) return;
+    if (_editing && _editingPath == path) return _editor?.focus();
     if (!await confirmDiscard()) return;
     setState(() { _editing = true; _editingPath = path; });
     await WidgetsBinding.instance.endOfFrame;
@@ -228,9 +228,13 @@ class LibraryPageState extends State<LibraryPage> {
 
   @override
   Widget build(BuildContext context) {
-    return IndexedStack(
-      index: _editing ? 1 : 0,
-      children: [_gridMode(context), _editMode(context)],
+    // Esc from anywhere in the window (grid, filmstrip, editor) saves and closes
+    return CallbackShortcuts(
+      bindings: {const SingleActivator(LogicalKeyboardKey.escape): AppController.instance.saveAndClose},
+      child: IndexedStack(
+        index: _editing ? 1 : 0,
+        children: [_gridMode(context), _editMode(context)],
+      ),
     );
   }
 

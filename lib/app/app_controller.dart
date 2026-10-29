@@ -108,6 +108,13 @@ class AppController with TrayListener, WindowListener {
     if (await libraryKey.currentState?.confirmDiscard() ?? true) await windowManager.hide();
   }
 
+  /// Esc: saves any edits without asking (unlike ⌘W), then hides the window.
+  Future<void> saveAndClose() async {
+    final editor = editorKey.currentState;
+    if (editor != null && editor.hasUnsavedChanges) await editor.save();
+    await windowManager.hide();
+  }
+
   // ---- Windows / Linux: tray and hotkeys from plugins (capture flows to be added per platform) ----
 
   Future<void> _initTrayAndHotkeys() async {
