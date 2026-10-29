@@ -31,7 +31,7 @@ class _ManimPageState extends State<ManimPage> {
   final _logScroll = ScrollController();
   String? _manim, _version;
   bool _looked = false, _rendering = false;
-  bool _hd = false, _gif = true;
+  bool _hd = false, _gif = false; // MP4 by default: Manim is made for video (a GIF is ~100x bigger)
   String? _result;
   Process? _process;
 
@@ -134,7 +134,7 @@ class _ManimPageState extends State<ManimPage> {
         backgroundColor: scheme.surfaceContainerLow,
         actions: [
           SegmentedButton<bool>(
-            segments: const [ButtonSegment(value: true, label: Text('GIF')), ButtonSegment(value: false, label: Text('MP4'))],
+            segments: const [ButtonSegment(value: false, label: Text('MP4')), ButtonSegment(value: true, label: Text('GIF (large)'))],
             selected: {_gif},
             showSelectedIcon: false,
             onSelectionChanged: (v) => setState(() => _gif = v.first),

@@ -150,8 +150,8 @@ itself (no screen recording needed).
 
 **File › Animate with Manim…** turns the capture into a [Manim](https://www.manim.community) scene: the
 screenshot as the backdrop and every annotation as a Manim object, animated in the order you added it (arrows
-and boxes draw on, text writes itself, steps grow, highlights wipe in). Edit the Python right there, pick GIF or
-MP4 and Preview (480p) or HD (1080p), and **Render**: the result lands in the Library like a recording. Blurred
+and boxes draw on, text writes itself, steps grow, highlights wipe in). Edit the Python right there, pick MP4
+(the default; Manim is made for video) or GIF and Preview (480p) or HD (1080p), and **Render**: the result lands in the Library like a recording. Blurred
 areas are baked into the backdrop, so the scene never contains what you blurred.
 
 SnapNow doesn't ship Manim (it's a few hundred MB of Python). Install it once, in Terminal:
