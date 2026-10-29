@@ -19,7 +19,14 @@ class MainFlutterWindow: NSWindow {
   }
 
   // Menu bar app: the editor window starts hidden (window_manager's pattern, so the engine still starts).
+  private var launched = false
+
   override public func order(_ place: NSWindow.OrderingMode, relativeTo otherWin: Int) {
+    // Show as a regular app: an accessory (menu bar) app's window opens inside a full-screen app's Space and
+    // floats over it, so clicking the full-screen app couldn't send the editor behind. Not at launch, where
+    // the window is ordered once and hidden straight away.
+    if launched && place != .out && !isVisible { DockPresence.shared.becomeRegular() }
+    launched = true
     super.order(place, relativeTo: otherWin)
     hiddenWindowAtLaunch()
     DockPresence.shared.update()   // show/hide don't post a notification of their own
@@ -39,6 +46,11 @@ final class DockPresence {
                      NSWindow.didMiniaturizeNotification, NSWindow.didDeminiaturizeNotification] {
             center.addObserver(forName: name, object: nil, queue: .main) { _ in self.update() }
         }
+    }
+
+    /// Right away, before a window is shown (update() would only catch up after it's on screen).
+    func becomeRegular() {
+        if NSApp.activationPolicy() != .regular { NSApp.setActivationPolicy(.regular) }
     }
 
     /// Deferred one turn so a closing or hiding window has left the screen before it's counted.
