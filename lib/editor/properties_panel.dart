@@ -140,22 +140,7 @@ class PropertiesPanel extends StatelessWidget {
       }
     } else {
       kids.addAll([
-        _heading(context, 'Color', small: true),
-        Wrap(spacing: 4, runSpacing: 6, children: [
-          for (final (name, c) in colors) _Swatch(color: c, name: name, selected: c.toARGB32() == host.color.toARGB32(), onTap: () => host.pickColor(c)),
-          Tooltip(
-            message: 'Any color',
-            child: InkResponse(
-              onTap: host.openColorPanel,
-              radius: 14,
-              child: Container(
-                width: 20, height: 20,
-                decoration: const BoxDecoration(shape: BoxShape.circle, gradient: SweepGradient(colors: [
-                  Colors.red, Colors.yellow, Colors.green, Colors.cyan, Colors.blue, Colors.purple, Colors.red])),
-              ),
-            ),
-          ),
-        ]),
+        // Colours are in the bar above the selected annotation (editor_page.dart _ColorBar)
         if (host.shapeKind case final shape?) ...[
           const SizedBox(height: 4),
           _row(context, 'Shape', [
@@ -643,34 +628,6 @@ class _StepperState extends State<_Stepper> {
         btn(Icons.add, 2),
         Padding(padding: const EdgeInsets.only(right: 6), child: Text('pt', style: TextStyle(fontSize: 11, color: s.onSurfaceVariant))),
       ]),
-    );
-  }
-}
-
-class _Swatch extends StatelessWidget {
-  final Color color;
-  final String name;
-  final bool selected;
-  final VoidCallback onTap;
-  const _Swatch({required this.color, required this.name, required this.selected, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final s = Theme.of(context).colorScheme;
-    return Tooltip(
-      message: name,
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          width: 20, height: 20,
-          decoration: BoxDecoration(
-            color: color,
-            shape: BoxShape.circle,
-            border: Border.all(color: s.outlineVariant),
-            boxShadow: selected ? [BoxShadow(color: s.primary, spreadRadius: 2.5), BoxShadow(color: s.surface, spreadRadius: 1)] : null,
-          ),
-        ),
-      ),
     );
   }
 }
