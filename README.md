@@ -22,6 +22,9 @@ blur what's private, and copy or save it, without leaving your keyboard.
   the image you are editing to build a before/after or a step-by-step in seconds.
 - **Copy text from anything.** Select an area of the screen and its text is on your clipboard, with table
   columns as tabs, so it pastes into a spreadsheet as cells. Fully on-device (Apple Vision).
+- **Animated GIFs and WhatsApp stickers from your markup.** One shortcut turns a marked-up capture into a GIF
+  where each arrow and box draws itself in, or into an animated WhatsApp sticker. See
+  [GIFs and stickers](#gifs-and-stickers).
 - **Record the screen** into a `.mov`, then turn it into a GIF from the Library.
 - **Yours.** No account, no cloud, no telemetry. Free for personal and work use.
 
@@ -54,7 +57,7 @@ All of them can be changed in **Settings › Shortcuts**. The capture panel adds
 | Select | V | Click anything to edit it; drag to move, handles to resize. ⌘A selects the whole image. |
 | Arrow | A | Drag; pull the round middle handle to curve it. |
 | Text / Callout | T / K | Callout: drag from what you want to point at to where the bubble goes. |
-| Box / Ellipse / Line / Pen | R / O / L / P | |
+| Shape / Line / Pen | R or O / L / P | Shape draws a rectangle, square, ellipse or circle (pick in the panel; Shift keeps sides equal). |
 | Step | N | Click to drop numbered markers: 1, 2, 3… |
 | Highlight | H | |
 | Blur | B | Hide emails, names, keys. |
@@ -76,29 +79,60 @@ everything into the image. Drag the image's square handles to add space around i
 
 **⌘C** copies the finished image (marching ants show it worked), **⌘S** saves it back to the capture.
 **⇧⌘S** (Save As…) exports PNG, JPEG, HEIC, TIFF, PDF, GIF or BMP, keeping Retina resolution.
-
-**More › Save as Animated GIF…** turns your markup into a looping GIF: the original capture first, then
-each annotation appears in the order you added it (arrows grow, boxes draw on, steps pop in, highlights
-wipe), and the finished picture holds at the end. Good for showing a step-by-step in a chat or a ticket.
-**⇧⌘C** copies that animated GIF straight to the clipboard, ready to paste into Messages, Slack, Mail or WhatsApp.
-
-**⌃⌘C** makes that same build-up an **animated WhatsApp sticker**. WhatsApp only animates stickers from
-installed packs, so SnapNow keeps a "SnapNow" pack (your newest 30 stickers) and hands it to WhatsApp for Mac,
-which asks to add or update it; then pick the sticker from the SnapNow tab in the sticker tray. While the pack
-has fewer than 3 stickers (WhatsApp's minimum) it is filled with copies of the newest. The clipboard is used for
-the hand-off and restored a minute later. With no markup, ⌃⌘C copies a still sticker that pastes straight into
-a chat (also in More › Copy as Still Sticker).
+**Share** (toolbar) opens the macOS share menu (Messages, Mail, AirDrop, Notes, WhatsApp…) with the finished
+image. **Pin** (⌥⌘T) keeps the editor above other windows. **Esc** saves your changes and closes the window
+(⌘W asks first).
 
 **Changed your mind later?** ⌘S keeps your markup inside the saved PNG. Any app shows the finished picture, but
 when you reopen it in SnapNow the original capture and every annotation come back, still editable and in the
 order you added them, so you can fix an arrow or make the animated GIF days afterwards. If another app edits the
 picture, it simply opens flat.
 
-![An animated GIF made by SnapNow: curved arrows draw themselves onto a dashboard capture, one after another](docs/screenshots/build-up.gif)
-
 **Zoom:** pinch, ⌘-scroll, or ⌘= / ⌘- / ⌘0 (fit) / ⌘1 (100%); scroll or hold Space and drag to pan.
 
 <br clear="right">
+
+## GIFs and stickers
+
+Mark up a capture, then turn it into something that moves. Everything is made on your Mac, from the markup
+itself (no screen recording needed).
+
+![An animated GIF made by SnapNow: curved arrows draw themselves onto a dashboard capture, one after another](docs/screenshots/build-up.gif)
+
+| | How | What you get |
+|---|---|---|
+| Animated GIF to the clipboard | **⇧⌘C** (More › Copy as Animated GIF) | Paste into Messages, Slack, Mail, WhatsApp, Jira… |
+| Animated GIF file | More › Save as Animated GIF… | A `.gif` wherever you choose |
+| Animated WhatsApp sticker | **⌃⌘C** (More › Animated WhatsApp Sticker) | Added to a "SnapNow" sticker pack in WhatsApp |
+| Still WhatsApp sticker | More › Copy as Still Sticker (or ⌃⌘C with no markup) | Pastes straight into a chat as a sticker |
+| Moving marching ants | Pattern › Marching Ants on any line or box, then **⌘C** | A looping GIF where only the dashes move |
+
+### The build-up GIF
+
+1. Capture something and add your markup (arrows, boxes, steps, callouts, highlights…) in the order you want it
+   to appear.
+2. Press **⇧⌘C** and paste, or use **More › Save as Animated GIF…** for a file.
+
+The GIF starts with the original capture, then each annotation appears in the order you added it: lines and
+boxes draw themselves on, arrows grow with the head riding the tip, highlights wipe across, steps and callouts
+pop in, text and blur fade in, and a spotlight dims the rest. The finished picture holds for a moment, then it
+loops. Retina captures come out at 1.5× their on-screen size: sharp, without being huge. Good for showing a
+step-by-step in a chat or a ticket.
+
+Because ⌘S keeps your markup inside the saved PNG, you can reopen any capture days later and make the GIF then.
+
+### WhatsApp stickers
+
+1. Mark up a capture (or don't, for a still sticker).
+2. Press **⌃⌘C**. WhatsApp for Mac opens and asks to add or update the **SnapNow** sticker pack; accept.
+3. In any chat, open the sticker tray, pick the SnapNow tab and send your sticker. It plays the same build-up
+   animation as the GIF.
+
+WhatsApp only animates stickers that come from an installed pack (pasted stickers stay still), which is why
+SnapNow keeps its own pack with your newest 30 stickers. WhatsApp needs at least 3 stickers in a pack, so
+while you have fewer, it's filled with copies of the newest. The clipboard is used for the hand-off to WhatsApp
+and put back a minute later. Stickers are fitted into 512 × 512, as WhatsApp requires. Needs WhatsApp for
+Mac.
 
 ## The Library
 
