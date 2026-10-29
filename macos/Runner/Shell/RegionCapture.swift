@@ -195,13 +195,19 @@ final class RegionCapture {
     }
 
     /// What a click would capture right now (or the selection while dragging).
-    var focus: CGRect? { isDragging ? selection : hoveredWindow }
+    /// The last area, offered again: shown outlined, and Enter or a click inside it captures it.
+    lazy var offered: CGRect? = Self.lastArea
+
+    /// The cursor is over the offered last area (so a click takes it, not the window under it).
+    var overOffered: Bool { offered.map { $0.contains(mouse) } ?? false }
+
+    var focus: CGRect? { isDragging ? selection : overOffered ? offered : hoveredWindow }
 
     // MARK: Finishing
 
     func mouseUp() {
         guard let screen = dragScreen else { return }
-        let rect = isDragging ? selection : (hoveredWindow ?? screen.frame)
+        let rect = isDragging ? selection : overOffered ? offered.map { $0.intersection(screen.frame) } : (hoveredWindow ?? screen.frame)
         dragStart = nil
         guard let r = rect, r.width >= 1, r.height >= 1, let f = frozen.first(where: { $0.screen == screen }) else { finish(nil); return }
         finish(save(r, from: f) ? remember(r) : nil)
@@ -300,12 +306,24 @@ private final class RegionView: NSView {
             return l.intersects(bounds) ? l : nil
         }
 
-        // Dim all but the focus
-        let dim = NSBezierPath(rect: bounds)
-        if let f = focus { dim.appendRect(f) }
-        dim.windingRule = .evenOdd
-        NSColor.black.withAlphaComponent(0.4).setFill()
-        dim.fill()
+        // Dim all but the focus and the offered last area (cleared out of the dim, so overlaps stay bright)
+        let lit = [focus, capture.isDragging ? nil : capture.offered.map(local)].compactMap { $0 }
+        ctx.saveGState()
+        ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+        ctx.setFillColor(NSColor.black.withAlphaComponent(0.4).cgColor)
+        ctx.fill(bounds)
+        ctx.setBlendMode(.clear)
+        lit.forEach { ctx.fill($0) }
+        ctx.endTransparencyLayer()
+        ctx.restoreGState()
+
+        // The last area stays outlined (until a new drag), ready for Enter or a click
+        if !capture.isDragging, let last = capture.offered.map(local), last.intersects(bounds) {
+            let border = NSBezierPath(rect: last.insetBy(dx: -1, dy: -1))
+            border.lineWidth = 2
+            Self.orange.setStroke()
+            border.stroke()
+        }
 
         let m = CGPoint(x: capture.mouse.x - origin.x, y: capture.mouse.y - origin.y)
         guard bounds.contains(m) else { return }
@@ -326,7 +344,7 @@ private final class RegionView: NSView {
             : "x = \(Int(m.x))   y = \(Int(bounds.height - m.y))"
         let loupeRect = drawLoupe(at: m, ctx: ctx, label: size)
         if capture.dragStart == nil {
-            let last = RegionCapture.lastArea.map { "\nPress Enter for the last area (\(Int($0.width.rounded())) x \(Int($0.height.rounded())))" } ?? ""
+            let last = capture.offered.map { "\nEnter or click inside the outline: last area (\(Int($0.width.rounded())) x \(Int($0.height.rounded())))" } ?? ""
             hint("Click, hold, and drag to select region" + last, beside: loupeRect)
         }
     }
