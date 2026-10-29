@@ -299,7 +299,7 @@ private final class RegionView: NSView {
         // The selection's size while dragging, otherwise where the cursor is (points from the screen's top-left)
         let size = capture.isDragging
             ? focus.map { "\(Int($0.width.rounded())) x \(Int($0.height.rounded()))" } ?? ""
-            : "row = \(Int(bounds.height - m.y))   column = \(Int(m.x))"
+            : "x = \(Int(m.x))   y = \(Int(bounds.height - m.y))"
         let loupeRect = drawLoupe(at: m, ctx: ctx, label: size)
         if capture.dragStart == nil { hint("Click, hold, and drag to select region", beside: loupeRect) }
     }
