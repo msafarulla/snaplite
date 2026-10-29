@@ -299,7 +299,7 @@ private final class RegionView: NSView {
         // The selection's size while dragging, otherwise where the cursor is (points from the screen's top-left)
         let size = capture.isDragging
             ? focus.map { "\(Int($0.width.rounded())) x \(Int($0.height.rounded()))" } ?? ""
-            : "\(Int(m.x)), \(Int(bounds.height - m.y))"
+            : "row = \(Int(bounds.height - m.y))   column = \(Int(m.x))"
         let loupeRect = drawLoupe(at: m, ctx: ctx, label: size)
         if capture.dragStart == nil { hint("Click, hold, and drag to select region", beside: loupeRect) }
     }
@@ -313,7 +313,12 @@ private final class RegionView: NSView {
         let circle = CGRect(x: x, y: y, width: d, height: d)
 
         // Card behind the circle and label, as in Snagit
-        let card = CGRect(x: circle.minX - 6, y: circle.minY - labelH, width: d + 12, height: d + labelH + 6)
+        // As wide as the label needs (row/column can be wider than the circle)
+        let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 13, weight: .medium), .foregroundColor: NSColor.white]
+        let text = label as NSString
+        let ts = text.size(withAttributes: attributes)
+        let cardW = max(d + 12, ts.width + 24)
+        let card = CGRect(x: circle.midX - cardW / 2, y: circle.minY - labelH, width: cardW, height: d + labelH + 6)
         let cardPath = NSBezierPath(roundedRect: card, xRadius: 14, yRadius: 14)
         NSGraphicsContext.saveGraphicsState()
         let shadow = NSShadow(); shadow.shadowBlurRadius = 8; shadow.shadowColor = NSColor.black.withAlphaComponent(0.4); shadow.set()
@@ -362,9 +367,6 @@ private final class RegionView: NSView {
         NSColor.white.setStroke()
         ring.stroke()
 
-        let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 13, weight: .medium), .foregroundColor: NSColor.white]
-        let text = label as NSString
-        let ts = text.size(withAttributes: attributes)
         text.draw(at: CGPoint(x: circle.midX - ts.width / 2, y: card.minY + (labelH - ts.height) / 2 + 1), withAttributes: attributes)
         return card
     }
