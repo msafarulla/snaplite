@@ -77,7 +77,7 @@ class ManimDoc {
       ..writeln('from manim import *')
       ..writeln('from math import *')
       ..writeln();
-    if (items.any((i) => i.kind == MKind.path && i.enter == MEnter.fourier)) out.write(_fourierHelper);
+    if (items.any((i) => i.kind == MKind.path && i.enter == MEnter.fourier)) out.write(fourierHelper);
     out
       ..writeln()
       ..writeln('class $className(${camera ? 'MovingCameraScene' : 'Scene'}):')
@@ -257,8 +257,10 @@ class ManimDoc {
   /// The Fourier drawing, 3Blue1Brown style: the path sampled into complex numbers, its discrete Fourier
   /// transform as rotating vectors (largest first, ordered by frequency), drawn tip to tail with their circles
   /// while the last tip leaves a trace. An open path is mirrored so it closes, and only its first half is drawn.
-  static const _fourierHelper = '''
-def snapnow_fourier(scene, path, n_vectors, run_time, color, stroke_width, closed, show_circles):
+  /// The capture scenes (ManimScene) pass the editor's look: faint white circles, arms in the stroke's colour.
+  static const fourierHelper = '''
+def snapnow_fourier(scene, path, n_vectors, run_time, color, stroke_width, closed, show_circles,
+                    circle_color=BLUE_C, circle_opacity=0.75, arm_color=GREY_B):
     samples = 400
     z = np.array([complex(*path.point_from_proportion(a / (samples - 1))[:2]) for a in range(samples)])
     if not closed:
@@ -283,11 +285,11 @@ def snapnow_fourier(scene, path, n_vectors, run_time, color, stroke_width, close
 
     def draw_arms(m):
         c = chain()
-        m.become(VGroup(*[Line(p3(c[i]), p3(c[i + 1]), stroke_width=1.5, stroke_color=GREY_B) for i in range(len(c) - 1)]))
+        m.become(VGroup(*[Line(p3(c[i]), p3(c[i + 1]), stroke_width=1.5, stroke_color=arm_color) for i in range(len(c) - 1)]))
 
     def draw_circles(m):
         c = chain()
-        m.become(VGroup(*[Circle(radius=abs(coefs[k]), stroke_width=1.2, stroke_color=BLUE_C, stroke_opacity=0.75)
+        m.become(VGroup(*[Circle(radius=abs(coefs[k]), stroke_width=1.2, stroke_color=circle_color, stroke_opacity=circle_opacity)
                           .move_to(p3(c[i])) for i, k in enumerate(keep)]))
 
     arms = VGroup()
