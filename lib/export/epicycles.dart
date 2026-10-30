@@ -163,7 +163,7 @@ class Epicycles {
     final ring = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = hair
-      ..color = Colors.white.withValues(alpha: 0.38); // dim, so the stroke being drawn stands out
+      ..color = Colors.white.withValues(alpha: 0.15); // dim, so the stroke being drawn stands out
     final arm = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = hair * 1.4
