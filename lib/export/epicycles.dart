@@ -13,12 +13,18 @@ class Epicycles {
   final Offset center;
   final List<({double freq, double re, double im})> terms; // largest first
   final bool closed;
-  Epicycles._(this.center, this.terms, this.closed);
+  /// A proper open curve is its straight start→end line plus a sine series that is zero at both ends; the
+  /// circles ride along that line. Zero for the others.
+  final Offset trendFrom, trendTo;
+  Epicycles._(this.center, this.terms, this.closed, {this.trendFrom = Offset.zero, this.trendTo = Offset.zero});
+
+  Offset _trend(double along) => trendFrom + (trendTo - trendFrom) * along;
 
   static const _samples = 128, _maxCircles = 30;
-  /// A proper Fourier curve keeps only the low harmonics, enough for 99.95% of the shape's energy and at most
-  /// [_maxHarmonic]: smooth by construction, so a wobble in the drag can't survive.
-  static const _keep = 0.9995, _maxHarmonic = 16;
+  /// A proper Fourier curve keeps only the low harmonics, enough for 99.9% of the shape's energy and at most
+  /// [_maxHarmonic], softened toward the top (Lanczos σ) so nothing ripples: smooth by construction, so a
+  /// wobble in the drag can't survive.
+  static const _keep = 0.999, _maxHarmonic = 12;
   static final _cache = Expando<Epicycles>(), _properCache = Expando<Epicycles>();
 
   static bool fits(Annotation a) =>
@@ -43,9 +49,15 @@ class Epicycles {
     Offset at(double f) => metric.getTangentForOffset(metric.length * f)!.position;
     final start = at(0), end = at(1);
     final closed = a.shape is RectShape || a.shape is EllipseShape || (end - start).distance < metric.length * 0.03;
+    // Open and proper: the bend away from the straight start→end line, extended as an odd function, so its
+    // series is all sines, zero at both ends, with no overshoot there. Otherwise out and back.
+    final detrend = proper && !closed;
+    Offset bend(double f) => at(f) - (start + (end - start) * f);
     final pts = closed
         ? [for (var i = 0; i < _samples; i++) at(i / _samples)]
-        : [for (var i = 0; i <= _samples; i++) at(i / _samples), for (var i = _samples - 1; i > 0; i--) at(i / _samples)];
+        : detrend
+            ? [for (var i = 0; i <= _samples; i++) bend(i / _samples), for (var i = _samples - 1; i > 0; i--) -bend(i / _samples)]
+            : [for (var i = 0; i <= _samples; i++) at(i / _samples), for (var i = _samples - 1; i > 0; i--) at(i / _samples)];
 
     // Discrete Fourier transform of the points as complex numbers
     final n = pts.length;
@@ -70,16 +82,21 @@ class Epicycles {
         kept += rest.where((t) => t.freq.abs() == harmonic).fold(0.0, (sum, t) => sum + power(t));
         if (total == 0 || kept / total >= _keep) break;
       }
-      rest = rest.where((t) => t.freq.abs() <= harmonic).toList();
+      double sigma(double k) => k == 0 ? 1 : math.sin(math.pi * k / (harmonic + 1)) / (math.pi * k / (harmonic + 1));
+      rest = [
+        for (final t in rest)
+          if (t.freq.abs() <= harmonic) (freq: t.freq, re: t.re * sigma(t.freq.abs()), im: t.im * sigma(t.freq.abs())),
+      ];
     }
     rest.sort((x, y) => power(y).compareTo(power(x)));
-    return Epicycles._(Offset(dc.re, dc.im), proper ? rest : rest.take(_maxCircles).toList(), closed);
+    return Epicycles._(detrend ? Offset.zero : Offset(dc.re, dc.im), proper ? rest : rest.take(_maxCircles).toList(), closed,
+        trendFrom: detrend ? start : Offset.zero, trendTo: detrend ? end : Offset.zero);
   }
 
   /// The point the circles trace at `along` (0…1 of the stroke), and its rate of change per unit of `along`.
   ({Offset at, Offset d}) _trace(double along) {
     final s = closed ? along : along / 2, ds = closed ? 1.0 : 0.5;
-    var p = center, d = Offset.zero;
+    var p = center + _trend(along), d = trendTo - trendFrom;
     for (final t in terms) {
       final w = 2 * math.pi * t.freq, c = math.cos(w * s), sn = math.sin(w * s);
       p += Offset(t.re * c - t.im * sn, t.re * sn + t.im * c);
@@ -123,8 +140,8 @@ class Epicycles {
   /// The circles' centres and the tip at `along` (0…1 of the stroke).
   List<Offset> chain(double along) {
     final s = closed ? along : along / 2;
-    final out = [center];
-    var p = center;
+    var p = center + _trend(along);
+    final out = [p];
     for (final t in terms) {
       final angle = 2 * math.pi * t.freq * s;
       final c = math.cos(angle), sn = math.sin(angle);
