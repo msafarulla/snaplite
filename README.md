@@ -54,6 +54,13 @@ With a delay set, you pick the area first; it stays outlined while a large count
 that area (time to open a menu or hover something), then that area is captured as it is at that moment. Window, screen
 and text captures count down first. The countdown and outline never end up in the picture.
 
+### Scheduled screenshots
+
+Menu bar › **Scheduled Screenshots** takes a screenshot of every screen on a timer (every 10 seconds up to every
+hour) into a folder you choose, one folder per day: `<folder>/20261030/153012.png` (other screens add `-2`, `-3`).
+The default folder is Pictures › SnapNow Scheduled. While it runs, the menu bar icon shows a clock; turns are
+skipped while the screen is locked. It keeps running after a relaunch, with a notice saying so.
+
 ### Capturing an area
 
 When you press ⌃⇧C the screen freezes and dims, so menus and hover states stay exactly as they were:

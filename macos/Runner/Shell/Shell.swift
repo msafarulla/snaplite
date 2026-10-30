@@ -59,6 +59,11 @@ final class Shell: NSObject, NSMenuDelegate, NSPopoverDelegate {
         NotificationCenter.default.addObserver(self, selector: #selector(registerHotKeys), name: Shortcuts.changed, object: nil)
 
         ScreenPermission.checkAtLaunch()
+        ScheduledCapture.shared.onChange = { [weak self] in
+            guard let self, !self.busy, !self.recorder.isRecording else { return }
+            self.showIdleIcon()
+        }
+        ScheduledCapture.shared.resumeIfRunning()
     }
 
     // MARK: - Menus
@@ -79,6 +84,7 @@ final class Shell: NSObject, NSMenuDelegate, NSPopoverDelegate {
         menu.addItem(delayed)
         menu.addItem(item("Copy Text…", #selector(grabText), shortcut: .text))
         menu.addItem(item("Record Screen…", #selector(startRecordingFromMenu), shortcut: .record))
+        menu.addItem(ScheduledCapture.shared.menuItem())
         shortcutWarning.isEnabled = false
         menu.addItem(shortcutWarning)
         menu.addItem(.separator())
@@ -167,7 +173,10 @@ final class Shell: NSObject, NSMenuDelegate, NSPopoverDelegate {
     }()
 
     private func showIdleIcon() {
-        statusItem.button?.image = Self.idleIcon
+        // While scheduled screenshots run, the icon says so
+        statusItem.button?.image = ScheduledCapture.shared.isRunning
+            ? NSImage(systemSymbolName: "camera.badge.clock", accessibilityDescription: "Scheduled screenshots running") ?? Self.idleIcon
+            : Self.idleIcon
         statusItem.button?.contentTintColor = nil
         statusItem.button?.title = ""
         statusItem.button?.imagePosition = .imageOnly
