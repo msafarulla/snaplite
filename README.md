@@ -221,8 +221,8 @@ sudo /Library/TeX/texbin/tlmgr install standalone preview doublestroke relsize f
 The GIF starts with the original capture, then each annotation appears in the order you added it: lines and
 boxes draw themselves on, arrows grow with the head riding the tip, highlights wipe across, steps and callouts
 pop in, text and blur fade in, and a spotlight dims the rest. The finished picture holds for a moment, then it
-loops. It runs at 25 frames a second, with each line taking a little over a second to draw, so it's smooth and
-easy to follow. Retina captures keep their full resolution (up to 3840 px on the long side), so text stays crisp. Good for showing a
+loops. It runs at 50 frames a second, with each line taking a little over a second to draw, so it's smooth and
+easy to follow (Settings › GIF frame rate picks 50, 25 or 15 frames a second; fewer make smaller files). Retina captures keep their full resolution (up to 3840 px on the long side), so text stays crisp. Good for showing a
 step-by-step in a chat or a ticket.
 
 **Fourier drawing.** Tick **Fourier drawing** in the style panel (it shows when an arrow, line, pen, box or

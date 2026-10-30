@@ -1239,6 +1239,8 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
       await Native.toast('Add some markup first', symbol: 'exclamationmark.triangle.fill');
       return null;
     }
+    final fps = int.tryParse(await Native.getString('gifFps').catchError((_) => null) ?? '');
+    BuildUpGif.fps = BuildUpGif.fpsChoices.contains(fps) ? fps! : 50; // Settings › GIF frame rate
     return s;
   }
 

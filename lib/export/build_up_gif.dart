@@ -12,8 +12,10 @@ import 'gif_encoder.dart';
 /// The "build-up" GIF: the original capture, then each annotation appearing in the order it was added,
 /// then the finished picture, looping. Rendering uses the editor's own painter; encoding is pure Dart.
 class BuildUpGif {
-  /// 50 frames a second (20 ms, the shortest delay GIF players honour) and unhurried appearances: fluid and easy to follow.
-  static const fps = 50;
+  /// Frames a second, set in Settings (`gifFps`): 50 (20 ms, the shortest delay GIF players honour) is the
+  /// smoothest, 25 and 15 make smaller files. Appearances stay unhurried either way.
+  static const fpsChoices = [15, 25, 50];
+  static int fps = 50;
   static const openingHold = Duration(milliseconds: 1200);
   static const pauseAfterEach = Duration(milliseconds: 600);
   static const finalHold = Duration(milliseconds: 3000);

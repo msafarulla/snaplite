@@ -8,6 +8,9 @@ enum Prefs {
     static let microphone = "recordMicrophone"
     /// Format Save As starts on; empty means the last one used.
     static let saveAsFormat = "saveAs.defaultFormat"
+    /// Animated GIF frames a second ("15", "25" or "50"); the editor reads it each time it makes a GIF.
+    static let gifFps = "gifFps"
+    static let gifFpsChoices = ["50", "25", "15"]
 }
 
 /// Which tools get a toolbar button; the rest are under More.
@@ -123,6 +126,13 @@ final class SettingsWindowController: NSWindowController {
         format.action = #selector(saveAsFormatChosen(_:))
         stack.addArrangedSubview(row("Save As format", format))
         stack.addArrangedSubview(note("⇧⌘S starts on this format. Captures stay PNG so their markup stays editable."))
+        let fps = NSPopUpButton(frame: .zero, pullsDown: false)
+        fps.addItems(withTitles: Prefs.gifFpsChoices.map { "\($0) frames a second" })
+        fps.selectItem(at: Prefs.gifFpsChoices.firstIndex(of: defaults.string(forKey: Prefs.gifFps) ?? "") ?? 0)
+        fps.target = self
+        fps.action = #selector(gifFpsChosen(_:))
+        stack.addArrangedSubview(row("GIF frame rate", fps))
+        stack.addArrangedSubview(note("For Save as Animated GIF and ⇧⌘C. More frames look smoother; fewer make smaller files."))
 
         // Shortcuts
         stack.addArrangedSubview(separator())
@@ -227,6 +237,10 @@ final class SettingsWindowController: NSWindowController {
     @objc private func saveAsFormatChosen(_ sender: NSPopUpButton) {
         let index = sender.indexOfSelectedItem
         UserDefaults.standard.set(index > 0 ? sender.titleOfSelectedItem : "", forKey: Prefs.saveAsFormat)
+    }
+
+    @objc private func gifFpsChosen(_ sender: NSPopUpButton) {
+        UserDefaults.standard.set(Prefs.gifFpsChoices[sender.indexOfSelectedItem], forKey: Prefs.gifFps)
     }
 
     /// Rejects reserved and duplicate combinations; otherwise saves, which re-registers the hotkeys.

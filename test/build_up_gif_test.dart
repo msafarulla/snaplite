@@ -166,6 +166,7 @@ void main() {
       final args = call.arguments as Map?;
       if (call.method == 'toast') toasts.add(args!['message'] as String);
       if (call.method == 'copyGif') copiedGifs.add(args!['path'] as String);
+      if (call.method == 'getString' && args!['key'] == 'gifFps') return '15'; // Settings › GIF frame rate
       return null;
     });
     tester.view.physicalSize = const Size(1600, 1000);
@@ -212,6 +213,8 @@ void main() {
     final frames = await tester.runAsync(() async => decode(await File(copiedGifs.single).readAsBytes()));
     expect(frames!.length, greaterThan(2), reason: 'animated, not a still');
     expect(pngCopies, 0);
+    expect(BuildUpGif.fps, 15, reason: 'the frame rate chosen in Settings');
+    addTearDown(() => BuildUpGif.fps = 50);
     await tester.pump();
     final preview = find.byKey(const ValueKey('snaplite-gif-preview'));
     expect(preview, findsOneWidget, reason: 'the copied GIF plays on screen');
