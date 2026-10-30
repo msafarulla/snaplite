@@ -62,7 +62,7 @@ void main() {
     final a = Annotation(id: 1, shape: PenShape(shaky));
     final e = Epicycles.proper(a)!;
     final top = e.terms.map((t) => t.freq.abs()).reduce(math.max);
-    expect(top, lessThanOrEqualTo(16), reason: 'only low harmonics: smooth by construction');
+    expect(top, lessThanOrEqualTo(6), reason: 'only the lowest harmonics: smooth by construction');
     expect(e.terms.length, lessThan(Epicycles.of(a)!.terms.length), reason: 'fewer circles than tracing the raw drag');
     final pts = (Epicycles.fourierized(a).shape as PenShape).points;
     expect((pts.first - shaky.first).distance, lessThan(0.01));

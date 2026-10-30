@@ -21,10 +21,10 @@ class Epicycles {
   Offset _trend(double along) => trendFrom + (trendTo - trendFrom) * along;
 
   static const _samples = 128, _maxCircles = 30;
-  /// A proper Fourier curve keeps only the low harmonics, enough for 99.9% of the shape's energy and at most
-  /// [_maxHarmonic], softened toward the top (Lanczos σ) so nothing ripples: smooth by construction, so a
-  /// wobble in the drag can't survive.
-  static const _keep = 0.999, _maxHarmonic = 12;
+  /// A proper Fourier curve keeps only the lowest harmonics, enough for 99.5% of the shape's energy and at
+  /// most [_maxHarmonic], the finer ones softened (Lanczos σ) so nothing ripples: smooth by
+  /// construction, so a wobble in the drag can't survive.
+  static const _keep = 0.995, _maxHarmonic = 6;
   static final _cache = Expando<Epicycles>(), _properCache = Expando<Epicycles>();
 
   static bool fits(Annotation a) =>
@@ -82,7 +82,12 @@ class Epicycles {
         kept += rest.where((t) => t.freq.abs() == harmonic).fold(0.0, (sum, t) => sum + power(t));
         if (total == 0 || kept / total >= _keep) break;
       }
-      double sigma(double k) => k == 0 ? 1 : math.sin(math.pi * k / (harmonic + 1)) / (math.pi * k / (harmonic + 1));
+      // The main wave keeps its size (so the shape does); finer ones fade out toward the cut-off
+      double sigma(double k) {
+        if (k <= 1) return 1;
+        final x = math.pi * (k - 1) / harmonic;
+        return math.sin(x) / x;
+      }
       rest = [
         for (final t in rest)
           if (t.freq.abs() <= harmonic) (freq: t.freq, re: t.re * sigma(t.freq.abs()), im: t.im * sigma(t.freq.abs())),
