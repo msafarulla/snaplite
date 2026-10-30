@@ -23,7 +23,6 @@ class _ManimPageState extends State<ManimPage> {
   bool _looked = false, _rendering = false;
   bool _hd = false, _gif = false; // MP4 by default: Manim is made for video (a GIF is ~100x bigger)
   String? _result;
-  Process? _process;
 
   @override
   void initState() {
@@ -33,7 +32,6 @@ class _ManimPageState extends State<ManimPage> {
 
   @override
   void dispose() {
-    _process?.kill();
     _code.dispose();
     _logScroll.dispose();
     super.dispose();
@@ -46,6 +44,7 @@ class _ManimPageState extends State<ManimPage> {
   }
 
   void _say(String text) {
+    if (!mounted) return; // a render left running after the page closed still saves to the Library
     setState(() => _log.write(text));
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_logScroll.hasClients) _logScroll.jumpTo(_logScroll.position.maxScrollExtent);
@@ -67,9 +66,7 @@ class _ManimPageState extends State<ManimPage> {
       fps: _hd ? 30 : 15,
       gif: _gif,
       log: _say,
-      started: (p) => _process = p,
     );
-    _process = null;
     if (mounted) setState(() { _rendering = false; _result = result; });
   }
 

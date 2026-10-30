@@ -58,7 +58,7 @@ class AppMenuBar extends StatelessWidget {
             item('Render', studio.render, const SingleActivator(LogicalKeyboardKey.enter, meta: true)),
             item('Show Code', studio.showCode),
           ]),
-          ?group([item('Close Studio', () => Navigator.of(studio.context).maybePop())]),
+          ?group([item('Close Studio', () => Navigator.of(studio.context).maybePop(), const SingleActivator(LogicalKeyboardKey.keyW, meta: true))]),
         ]),
         PlatformMenu(label: 'Edit', menus: [
           ?group([

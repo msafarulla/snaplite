@@ -57,7 +57,6 @@ class ManimStudioPageState extends State<ManimStudioPage> {
   final _log = StringBuffer();
   final _logScroll = ScrollController();
   String? _result;
-  Process? _process;
   Timer? _saveTimer;
   final _focus = FocusNode();
 
@@ -94,7 +93,6 @@ class ManimStudioPageState extends State<ManimStudioPage> {
     if (ManimStudioPage.active.value == this) ManimStudioPage.active.value = null;
     _saveTimer?.cancel();
     _saveNow();
-    _process?.kill();
     _logScroll.dispose();
     _focus.dispose();
     super.dispose();
@@ -250,6 +248,7 @@ class ManimStudioPageState extends State<ManimStudioPage> {
   // ---- Rendering ----
 
   void _say(String text) {
+    if (!mounted) return; // a render left running after the page closed still saves to the Library
     setState(() => _log.write(text));
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_logScroll.hasClients) _logScroll.jumpTo(_logScroll.position.maxScrollExtent);
@@ -268,9 +267,8 @@ class ManimStudioPageState extends State<ManimStudioPage> {
     final h = _hd ? 1080 : 480;
     final result = await ManimRunner.render(
       manim: m.path, code: doc.code(latex: _latex), className: ManimDoc.className, files: doc.files,
-      width: (h * 16 / 9 / 2).round() * 2, height: h, fps: _hd ? 30 : 15, log: _say, started: (p) => _process = p,
+      width: (h * 16 / 9 / 2).round() * 2, height: h, fps: _hd ? 30 : 15, log: _say,
     );
-    _process = null;
     if (!mounted) return;
     setState(() { _rendering = false; _result = result; });
     if (result != null) Native.openPath(result); // plays it

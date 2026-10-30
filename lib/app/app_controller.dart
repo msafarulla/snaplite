@@ -95,12 +95,23 @@ class AppController with TrayListener, WindowListener {
   /// Opens a capture in the editor (Library edit mode, with the filmstrip of all captures).
   Future<void> openEditor(String path) async {
     await _show();
+    _closePushedPages();
     await libraryKey.currentState?.openForEditing(path);
   }
 
   Future<void> showLibrary() async {
     await _show();
+    _closePushedPages();
     await libraryKey.currentState?.showGrid();
+  }
+
+  /// Manim Studio and Animate with Manim are pages pushed over the Library; a new capture or the Library
+  /// must come up in front, not stay hidden under them. Studio saves itself as it closes, and a render
+  /// already running finishes and lands in the Library.
+  void _closePushedPages() {
+    final context = libraryKey.currentContext;
+    final navigator = context == null ? null : Navigator.maybeOf(context);
+    navigator?.popUntil((r) => r.isFirst);
   }
 
   @override
