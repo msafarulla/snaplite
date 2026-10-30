@@ -119,9 +119,11 @@ class AppController with TrayListener, WindowListener {
     if (await libraryKey.currentState?.confirmDiscard() ?? true) await windowManager.hide();
   }
 
-  /// Esc: saves any edits without asking (unlike ⌘W), then hides the window.
+  /// Esc: saves any edits without asking (unlike ⌘W), then hides the window; with the copied GIF
+  /// playing over the editor it only closes that preview.
   Future<void> saveAndClose() async {
     final editor = editorKey.currentState;
+    if (editor?.closeGifPreview() ?? false) return;
     if (editor != null && editor.hasUnsavedChanges) await editor.save();
     await windowManager.hide();
   }

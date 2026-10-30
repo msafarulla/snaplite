@@ -156,6 +156,13 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
 
   /// Edits since the file was opened or last saved.
   bool get hasUnsavedChanges => _state != null && !identical(_state, _savedState);
+
+  /// Esc while the copied GIF is playing: closes just the preview (true), not the window.
+  bool closeGifPreview() {
+    if (_gifPreview == null) return false;
+    setState(() => _gifPreview = null);
+    return true;
+  }
   String? get path => _path;
   @visibleForTesting
   CanvasState? get state => _state;

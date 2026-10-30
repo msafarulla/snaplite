@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:snaplite_flutter/app/app_controller.dart';
 import 'package:snaplite_flutter/editor/canvas_painter.dart';
 import 'package:snaplite_flutter/editor/editor_page.dart';
 import 'package:snaplite_flutter/export/build_up_gif.dart';
@@ -152,8 +153,11 @@ void main() {
   testWidgets('⇧⌘C copies the build-up GIF, ⌘C still copies the still image', (tester) async {
     final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     final toasts = <String>[], copiedGifs = <String>[];
-    var pngCopies = 0;
-    messenger.setMockMethodCallHandler(const MethodChannel('window_manager'), (_) async => null);
+    var pngCopies = 0, hides = 0;
+    messenger.setMockMethodCallHandler(const MethodChannel('window_manager'), (call) async {
+      if (call.method == 'hide') hides++;
+      return null;
+    });
     messenger.setMockMethodCallHandler(const MethodChannel('pasteboard'), (call) async {
       if (call.method == 'writeImage') pngCopies++;
       return null;
@@ -174,7 +178,11 @@ void main() {
     addTearDown(() => FlutterError.onError = original);
 
     await tester.runAsync(() async {
-      await tester.pumpWidget(const MaterialApp(home: EditorPage()));
+      // Esc bound window-wide the way the Library binds it (save and close)
+      await tester.pumpWidget(MaterialApp(
+          home: CallbackShortcuts(
+              bindings: {const SingleActivator(LogicalKeyboardKey.escape): AppController.instance.saveAndClose},
+              child: EditorPage(key: AppController.instance.editorKey))));
       await Future<void>.delayed(const Duration(milliseconds: 500));
     });
     await tester.pump();
@@ -211,8 +219,17 @@ void main() {
     await tester.pump();
     expect(preview, findsNothing, reason: 'a click closes it');
 
+    await press(shift: true);
+    await tester.pump();
+    expect(preview, findsOneWidget);
+    await tester.runAsync(() => tester.sendKeyEvent(LogicalKeyboardKey.escape));
+    await tester.pump();
+    expect(preview, findsNothing, reason: 'Esc closes the preview');
+    expect(hides, 0, reason: 'Esc leaves the editor open');
+    expect(find.byKey(const ValueKey('snaplite-canvas')), findsOneWidget);
+
     await press(shift: false);
     expect(pngCopies, 1, reason: '⌘C is unchanged');
-    expect(copiedGifs.length, 1);
+    expect(copiedGifs.length, 2);
   });
 }
