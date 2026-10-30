@@ -18,9 +18,8 @@ class BuildUpGif {
   static const pauseAfterEach = Duration(milliseconds: 600);
   static const finalHold = Duration(milliseconds: 3000);
   static const lineDraw = Duration(milliseconds: 1200), fourierDraw = Duration(milliseconds: 2800);
-  static const maxSide = 2400.0;
-  /// GIF pixels per screen point: sharper than point size, but not the capture's full 2× (too big).
-  static const pointScale = 1.5;
+  /// The capture's own pixels (full Retina sharpness), scaled down only past a 4K-wide side.
+  static const maxSide = 3840.0;
 
   /// Fourier circles trace lines, pen strokes and outlines as they draw on (the editor's setting).
   static bool fourier = false;
@@ -33,10 +32,9 @@ class BuildUpGif {
         _ => const Duration(milliseconds: 700),
       };
 
-  /// Output pixels per image pixel: [pointScale] × point size, never above the capture's own pixels, at most
-  /// [maxSide] long.
+  /// Output pixels per image pixel: the capture's full resolution, at most [maxSide] long.
   static double outputScale(CanvasState s) =>
-      math.min(pointScale / s.density, maxSide / math.max(s.image.width, s.image.height)).clamp(0.01, 1.0);
+      (maxSide / math.max(s.image.width, s.image.height)).clamp(0.01, 1.0);
 
   static Future<Uint8List> render(CanvasState s) async {
     final k = outputScale(s);
