@@ -214,11 +214,13 @@ pop in, text and blur fade in, and a spotlight dims the rest. The finished pictu
 loops. Retina captures come out at 1.5× their on-screen size: sharp, without being huge. Good for showing a
 step-by-step in a chat or a ticket.
 
-**Fourier circles.** Tick **Fourier circles in GIF** in the style panel (it shows when an arrow, line, pen,
-box or ellipse is selected or its tool is active). From then on, each line, pen stroke and outline in the GIF is
-drawn by a chain of spinning circles whose tip traces it, the 3Blue1Brown epicycle effect, made inside SnapNow
-(no Manim needed). Those strokes take a little longer to appear so the circles can be seen; text, steps and
+**Fourier drawing.** Tick **Fourier drawing** in the style panel (it shows when an arrow, line, pen, box or
+ellipse is selected or its tool is active). From then on, each line, curve, pen stroke or outline you draw is
+drawn onto the screenshot by a chain of spinning circles whose tip traces it, the 3Blue1Brown epicycle effect,
+made inside SnapNow (no Manim needed). Select a stroke and click **Play** to watch it again. Animated GIFs use
+the same effect: traced strokes take a little longer to appear so the circles can be seen, while text, steps and
 highlights appear as before. The setting is remembered, and applies to ⇧⌘C, Save as Animated GIF and stickers.
+For a smooth curve, turn on **Curve: follow my drag** for arrows and lines, or use the pen.
 
 Because ⌘S keeps your markup inside the saved PNG, you can reopen any capture days later and make the GIF then.
 

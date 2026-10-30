@@ -13,6 +13,7 @@ import 'package:pasteboard/pasteboard.dart';
 import 'package:window_manager/window_manager.dart';
 import '../app/app_controller.dart';
 import '../export/build_up_gif.dart';
+import '../export/epicycles.dart';
 import '../model/annotation.dart';
 import '../model/markup_file.dart';
 import '../platform/native.dart';
@@ -197,6 +198,10 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
   /// Marching Ants lines run while any annotation uses them (one dash cycle every 0.8 s).
   final _march = ValueNotifier<double>(0);
   Timer? _marchTimer;
+  /// Fourier drawing: the annotation being drawn on by spinning circles, and how far (0…1).
+  int? _fourierId;
+  double _fourierT = 1;
+  Timer? _fourierTimer;
   /// Resizing the canvas by its square handles: handle index, new rect (image coords), grab offset.
   (int, Rect, Offset)? _canvasDrag;
   double _viewScale = 1; // view points per image point, from the last layout
@@ -368,6 +373,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
   void dispose() {
     _antsTimer?.cancel();
     _marchTimer?.cancel();
+    _fourierTimer?.cancel();
     _march.dispose();
     super.dispose();
   }
@@ -493,6 +499,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
 
   /// `p` is in image coordinates and may lie outside the image (the canvas area around it).
   void _down(Offset p) {
+    _stopFourier();
     if (_textEdit != null) { _endTextEdit(); return; } // a click elsewhere keeps the typed text
     final now = DateTime.now();
     final doubleClick = now.difference(_lastDown).inMilliseconds < 400 && (p - _lastDownPoint).distance * _viewScale < 6;
@@ -708,6 +715,37 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     final next = _state!.copyWith(annotations: [..._state!.annotations, a]);
     _commit(next);
     setState(() => _selection = a.id);
+    if (BuildUpGif.fourier) _playFourier(a);
+  }
+
+  /// Draws `a` on with Fourier circles, as the GIF does (a new stroke while the setting is on, or Play).
+  void _playFourier(Annotation a) {
+    if (Epicycles.of(a) == null) return;
+    _fourierTimer?.cancel();
+    final start = DateTime.now();
+    const length = 1800;
+    setState(() { _fourierId = a.id; _fourierT = 0; });
+    _fourierTimer = Timer.periodic(const Duration(milliseconds: 16), (_) {
+      final t = DateTime.now().difference(start).inMilliseconds / length;
+      if (t >= 1 || !mounted) return _stopFourier();
+      setState(() => _fourierT = t);
+    });
+  }
+
+  void _stopFourier() {
+    if (_fourierId == null) return;
+    _fourierTimer?.cancel();
+    _fourierTimer = null;
+    if (mounted) setState(() => _fourierId = null);
+  }
+
+  @override
+  bool get canPlayFourier => selected != null && Epicycles.of(selected!) != null;
+
+  @override
+  void playFourier() {
+    final a = selected;
+    if (a != null) _playFourier(a);
   }
 
   void _replace(Annotation a, {bool snapshot = true}) {
@@ -1717,8 +1755,9 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
                     onPointerPanZoomUpdate: _onPanZoomUpdate,
                     child: CustomPaint(
                       painter: _PreviewPainter(
-                        base: CanvasPainter(state: state, selectionId: _selection, scale: scale, hiddenTextId: _textEdit?.id,
-                            march: _march),
+                        base: CanvasPainter(state: state, selectionId: _fourierId == null ? _selection : null, scale: scale,
+                            hiddenTextId: _textEdit?.id, march: _march, epicycles: _fourierId != null,
+                            progress: _fourierId == null ? null : {for (final a in state.annotations) a.id: a.id == _fourierId ? _fourierT : 1.0}),
                         origin: origin,
                         tool: _tool, color: _color, size: _size, scale: scale,
                         style: kind == null ? ArrowStyle.arrow : _styleFor(kind),

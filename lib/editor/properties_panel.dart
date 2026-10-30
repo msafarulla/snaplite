@@ -15,8 +15,10 @@ abstract class PanelHost {
   bool get selectionIsCurved;
   bool get followDrag; // new arrows and lines follow the dragged path
   void setFollowDrag(bool on);
-  bool get gifFourier; // Fourier circles trace lines and outlines in the build-up GIF
+  bool get gifFourier; // Fourier circles draw new strokes in the editor and trace them in the build-up GIF
   void setGifFourier(bool on);
+  bool get canPlayFourier; // the selection can be drawn by Fourier circles
+  void playFourier();
   ShapeKind? get shapeKind; // a box or ellipse (selected, or the Shape tool's choice); null otherwise
   void pickShapeKind(ShapeKind k);
   void pickColor(Color c);
@@ -217,11 +219,20 @@ class PropertiesPanel extends StatelessWidget {
               child: _check(context, 'Marching', style.pattern.marches,
                   (v) => host.setArrowStyle(style.copyWith(pattern: style.pattern.marching(v)))),
             ),
-          Tooltip(
-            message: 'In the animated GIF, spinning Fourier circles draw each line, pen stroke and outline',
-            waitDuration: const Duration(milliseconds: 700),
-            child: _check(context, 'Fourier circles in GIF', host.gifFourier, host.setGifFourier),
-          ),
+          Row(children: [
+            Expanded(
+              child: Tooltip(
+                message: 'Spinning Fourier circles draw each new line, pen stroke and outline, here and in animated GIFs',
+                waitDuration: const Duration(milliseconds: 700),
+                child: _check(context, 'Fourier drawing', host.gifFourier, host.setGifFourier),
+              ),
+            ),
+            if (host.canPlayFourier)
+              Tooltip(
+                message: 'Watch the circles draw the selected stroke',
+                child: _PillButton(icon: Icons.play_arrow, label: 'Play', onTap: host.playFourier),
+              ),
+          ]),
           // One row each, so the whole panel fits without scrolling
           Wrap(spacing: 14, runSpacing: 4, children: [
             if (isLine) _check(context, 'Tapered', style.tapered, (v) => host.setArrowStyle(style.copyWith(tapered: v)), indent: false),
