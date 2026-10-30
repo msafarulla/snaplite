@@ -209,7 +209,7 @@ sudo /Library/TeX/texbin/tlmgr install standalone preview doublestroke relsize f
 
 1. Capture something and add your markup (arrows, boxes, steps, callouts, highlights…) in the order you want it
    to appear.
-2. Press **⇧⌘C** and paste, or use **More › Save as Animated GIF…** for a file.
+2. Press **⇧⌘C**: the GIF plays over the canvas so you can check it (click or Esc closes it), and it is on the clipboard ready to paste. Or use **More › Save as Animated GIF…** for a file.
 
 The GIF starts with the original capture, then each annotation appears in the order you added it: lines and
 boxes draw themselves on, arrows grow with the head riding the tip, highlights wipe across, steps and callouts

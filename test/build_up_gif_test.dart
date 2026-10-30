@@ -204,6 +204,12 @@ void main() {
     final frames = await tester.runAsync(() async => decode(await File(copiedGifs.single).readAsBytes()));
     expect(frames!.length, greaterThan(2), reason: 'animated, not a still');
     expect(pngCopies, 0);
+    await tester.pump();
+    final preview = find.byKey(const ValueKey('snaplite-gif-preview'));
+    expect(preview, findsOneWidget, reason: 'the copied GIF plays on screen');
+    await tester.tap(preview);
+    await tester.pump();
+    expect(preview, findsNothing, reason: 'a click closes it');
 
     await press(shift: false);
     expect(pngCopies, 1, reason: '⌘C is unchanged');

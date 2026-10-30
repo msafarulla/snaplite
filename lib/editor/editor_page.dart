@@ -181,6 +181,8 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
   bool _imageSelected = false;
   /// After Copy, "marching ants" run around the image until the next edit or click.
   bool _copied = false;
+  /// The GIF ⇧⌘C just copied, playing over the canvas until clicked away.
+  Uint8List? _gifPreview;
   final _ants = ValueNotifier<double>(0);
 
   /// Pin keeps the window above other apps (⌥⌘T); remembered between launches.
@@ -1170,9 +1172,11 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
       await Native.toast('Making GIF…', symbol: 'hourglass');
       final dir = Directory('${Directory.systemTemp.path}/SnapNow GIFs')..createSync(recursive: true);
       final path = '${dir.path}/${_gifName()}.gif';
-      await File(path).writeAsBytes(await BuildUpGif.render(s), flush: true);
+      final gif = await BuildUpGif.render(s);
+      await File(path).writeAsBytes(gif, flush: true);
       await Native.copyGif(path);
       await Native.toast('Copied GIF');
+      if (mounted) setState(() => _gifPreview = gif);
     } catch (e, st) {
       debugPrint('GIF: $e\n$st');
       await Native.toast("Couldn't make the GIF", symbol: 'exclamationmark.triangle.fill');
@@ -1800,10 +1804,52 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
             if (_thicknessTarget case final a?) _thicknessSlider(a, origin, scale, Size(constraints.maxWidth, constraints.maxHeight)),
             if (_colorBarTarget case final a?) _colorBar(a, origin, scale, Size(constraints.maxWidth, constraints.maxHeight)),
             Positioned(right: 12, bottom: 12, child: _zoomPill()),
+            if (_gifPreview case final gif?) Positioned.fill(child: _gifPreviewCard(gif)),
           ]),
         ),
       ));
     });
+  }
+
+  /// The copied GIF playing over the dimmed canvas, so you see what you'll paste; a click or Esc closes it.
+  Widget _gifPreviewCard(Uint8List gif) {
+    final scheme = Theme.of(context).colorScheme;
+    void close() => setState(() => _gifPreview = null);
+    return CallbackShortcuts(
+      bindings: {const SingleActivator(LogicalKeyboardKey.escape): close},
+      child: Focus(
+        autofocus: true,
+        child: GestureDetector(
+          key: const ValueKey('snaplite-gif-preview'),
+          behavior: HitTestBehavior.opaque,
+          onTap: close,
+          child: ColoredBox(
+            color: Colors.black.withValues(alpha: 0.45),
+            child: Padding(
+              padding: const EdgeInsets.all(28),
+              child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Flexible(
+                  child: DecoratedBox(
+                    decoration: const BoxDecoration(boxShadow: [BoxShadow(color: Color(0x66000000), blurRadius: 18, offset: Offset(0, 4))]),
+                    child: Image.memory(gif, fit: BoxFit.contain, gaplessPlayback: true, filterQuality: FilterQuality.medium),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Material(
+                  color: scheme.surfaceContainerHigh.withValues(alpha: 0.95),
+                  shape: const StadiumBorder(),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                    child: Text('Copied as animated GIF: paste it anywhere  ·  click or Esc to close',
+                        style: TextStyle(fontSize: 12, color: scheme.onSurface)),
+                  ),
+                ),
+              ]),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   /// − / percent / + in the corner; clicking the percent switches between Fit and 100%.
