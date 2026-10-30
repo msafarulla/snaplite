@@ -214,6 +214,12 @@ pop in, text and blur fade in, and a spotlight dims the rest. The finished pictu
 loops. Retina captures come out at 1.5× their on-screen size: sharp, without being huge. Good for showing a
 step-by-step in a chat or a ticket.
 
+**Fourier circles.** Tick **Fourier circles in GIF** in the style panel (it shows when an arrow, line, pen,
+box or ellipse is selected or its tool is active). From then on, each line, pen stroke and outline in the GIF is
+drawn by a chain of spinning circles whose tip traces it, the 3Blue1Brown epicycle effect, made inside SnapNow
+(no Manim needed). Those strokes take a little longer to appear so the circles can be seen; text, steps and
+highlights appear as before. The setting is remembered, and applies to ⇧⌘C, Save as Animated GIF and stickers.
+
 Because ⌘S keeps your markup inside the saved PNG, you can reopen any capture days later and make the GIF then.
 
 ### WhatsApp stickers

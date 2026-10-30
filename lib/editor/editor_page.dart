@@ -93,6 +93,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     _makeBlankCanvas(1200, 800);
     _loadPrefs();
     Native.getBool('followDrag').then((on) { if (mounted && on != null) setState(() => _followDrag = on); });
+    Native.getBool('gifFourier').then((on) { if (mounted && on != null) setState(() => BuildUpGif.fourier = on); });
     Native.getBool('pinOnTop').then((on) { if (on == true && !_pinTouched) _setPinned(true, save: false); });
     _textController.addListener(_textChanged);
     Native.onColorPicked = (rgb) => pickColor(Color(0xFF000000 | rgb), refresh: false);
@@ -1885,6 +1886,15 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
   void setFollowDrag(bool on) {
     setState(() => _followDrag = on);
     Native.setBool('followDrag', on);
+  }
+
+  @override
+  bool get gifFourier => BuildUpGif.fourier;
+
+  @override
+  void setGifFourier(bool on) {
+    setState(() => BuildUpGif.fourier = on);
+    Native.setBool('gifFourier', on);
   }
 
   /// Clicking an arrow, line, box, ellipse or pen stroke shows the thickness slider beside it.

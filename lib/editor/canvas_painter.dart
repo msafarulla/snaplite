@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
+import '../export/epicycles.dart';
 import '../model/annotation.dart';
 
 /// Renders a [CanvasState] (base image + annotations) and the selection chrome.
@@ -19,9 +20,11 @@ class CanvasPainter extends CustomPainter {
   /// How far marching-ants lines have run (0…1 of one dash cycle); the editor's timer and the GIF's
   /// final hold move it. Null draws them still.
   final ValueListenable<double>? march;
+  /// For the build-up GIF: spinning Fourier circles trace lines, pen strokes and outlines as they draw on.
+  final bool epicycles;
 
   CanvasPainter({required this.state, required this.selectionId, required this.scale, this.hiddenTextId,
-      this.progress, this.march});
+      this.progress, this.march, this.epicycles = false});
 
   double _shown(Annotation a) => progress == null ? 1 : progress![a.id] ?? 0;
 
@@ -75,6 +78,7 @@ class CanvasPainter extends CustomPainter {
           drawPartial(canvas, a, t, number: step);
         default:
           drawPartial(canvas, a, t, hideText: a.id == hiddenTextId);
+          if (epicycles && t < 1) Epicycles.of(a)?.paint(canvas, Curves.easeInOut.transform(t), a.color, scale);
       }
     }
   }
@@ -153,6 +157,15 @@ class CanvasPainter extends CustomPainter {
         canvas.restore();
     }
   }
+
+  /// The line an arrow, line, pen stroke, box or ellipse draws along (what [drawPartial] draws on by length).
+  static Path outlinePath(Annotation a) => switch (a.shape) {
+        ArrowShape() || LineShape() => Path()..addPolygon(curveSamples(a.curve!, tangents: a.curveTangents, perSegment: 32), false),
+        RectShape(:final rect) => Path()..addRRect(RRect.fromRectXY(rect, 2, 2)),
+        EllipseShape(:final rect) => Path()..addOval(rect),
+        PenShape(:final points) => _smooth(points),
+        _ => Path(),
+      };
 
   /// The first `fraction` of `path`, by length.
   static Path _drawnOn(Path path, double fraction) {

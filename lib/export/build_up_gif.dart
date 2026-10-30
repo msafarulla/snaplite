@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import '../editor/canvas_painter.dart';
 import '../model/annotation.dart';
+import 'epicycles.dart';
 import 'gif_encoder.dart';
 
 /// The "build-up" GIF: the original capture, then each annotation appearing in the order it was added,
@@ -19,8 +20,12 @@ class BuildUpGif {
   /// GIF pixels per screen point: sharper than point size, but not the capture's full 2× (too big).
   static const pointScale = 1.5;
 
-  /// How long an annotation takes to appear: lines and outlines draw on a bit slower than pops and fades.
-  static Duration appearing(Annotation a) => switch (a.shape) {
+  /// Fourier circles trace lines, pen strokes and outlines as they draw on (the editor's setting).
+  static bool fourier = false;
+
+  /// How long an annotation takes to appear: lines and outlines draw on a bit slower than pops and fades,
+  /// and slower still while Fourier circles trace them, so the circles can be seen.
+  static Duration appearing(Annotation a) => fourier && Epicycles.of(a) != null ? const Duration(milliseconds: 1800) : switch (a.shape) {
         ArrowShape() || LineShape() || RectShape() || EllipseShape() || PenShape() => const Duration(milliseconds: 600),
         HighlightShape() => const Duration(milliseconds: 500),
         _ => const Duration(milliseconds: 400),
@@ -135,7 +140,8 @@ class BuildUpGif {
       final canvas = Canvas(recorder)..translate(at.dx, at.dy);
       canvas.clipRect(Rect.fromLTWH(0, 0, w, h));
       canvas.drawRect(Rect.fromLTWH(0, 0, w, h), Paint()..color = Colors.white);
-      CanvasPainter(state: s, selectionId: null, scale: k, progress: progress, march: march).paint(canvas, Size(w, h));
+      CanvasPainter(state: s, selectionId: null, scale: k, progress: progress, march: march, epicycles: fourier)
+          .paint(canvas, Size(w, h));
       final image = await recorder.endRecording().toImage(side, side);
       final rgba = (await image.toByteData(format: ui.ImageByteFormat.rawStraightRgba))!.buffer.asUint8List();
       image.dispose();
@@ -173,7 +179,7 @@ class BuildUpGif {
       int w, int h) async {
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
-    CanvasPainter(state: s, selectionId: null, scale: k, progress: progress, march: march)
+    CanvasPainter(state: s, selectionId: null, scale: k, progress: progress, march: march, epicycles: fourier)
         .paint(canvas, Size(w.toDouble(), h.toDouble()));
     final image = await recorder.endRecording().toImage(w, h);
     final data = await image.toByteData(format: ui.ImageByteFormat.rawStraightRgba);
