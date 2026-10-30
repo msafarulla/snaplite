@@ -174,6 +174,7 @@ final class Shell: NSObject, NSMenuDelegate, NSPopoverDelegate {
     }
 
     private func showCountdown(_ seconds: Int) {
+        CountdownHUD.show(seconds)
         statusItem.button?.image = NSImage(systemSymbolName: "timer", accessibilityDescription: "Countdown")
         statusItem.button?.title = " \(seconds)"
         statusItem.button?.imagePosition = .imageLeading
@@ -324,7 +325,7 @@ final class Shell: NSObject, NSMenuDelegate, NSPopoverDelegate {
         countdown(sender.tag) { [weak self] in self?.capture(.region) }
     }
 
-    /// Counts down in the menu bar (time to open a menu or hover something), then runs `action`.
+    /// Counts down on screen and in the menu bar (time to open a menu or hover something), then runs `action`.
     private func countdown(_ seconds: Int, then action: @escaping () -> Void) {
         guard !busy, !recorder.isRecording, hasPermission() else { return }
         busy = true
@@ -338,9 +339,13 @@ final class Shell: NSObject, NSMenuDelegate, NSPopoverDelegate {
                 return
             }
             timer.invalidate()
+            CountdownHUD.hide()
             self.showIdleIcon()
-            self.busy = false
-            action()
+            // A moment for the countdown to leave the screen before the capture starts
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                self.busy = false
+                action()
+            }
         }
     }
 

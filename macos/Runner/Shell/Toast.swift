@@ -126,3 +126,71 @@ private final class HoverView: NSView {
     override func mouseEntered(with event: NSEvent) { onHover?(true) }
     override func mouseExited(with event: NSEvent) { onHover?(false) }
 }
+
+/// The delay timer's countdown, big in the middle of the screen with the mouse: you can see how long is left
+/// while you open a menu or hover something. Click-through, and kept out of captures.
+enum CountdownHUD {
+    private static var panel: NSPanel?
+    private static var number: NSTextField?
+
+    static func show(_ seconds: Int) {
+        if panel == nil { build() }
+        guard let panel, let number else { return }
+        number.stringValue = "\(seconds)"
+        panel.orderFrontRegardless()
+        // A small pop on each tick
+        guard let layer = panel.contentView?.layer else { return }
+        let pop = CABasicAnimation(keyPath: "opacity")
+        pop.fromValue = 0.55
+        pop.toValue = 1
+        pop.duration = 0.25
+        layer.add(pop, forKey: "tick")
+    }
+
+    static func hide() {
+        panel?.orderOut(nil)
+        panel = nil
+        number = nil
+    }
+
+    private static func build() {
+        let side: CGFloat = 150
+        let label = NSTextField(labelWithString: "")
+        label.font = .monospacedDigitSystemFont(ofSize: 84, weight: .bold)
+        label.textColor = .white
+        label.alignment = .center
+        let caption = NSTextField(labelWithString: "Capturing in")
+        caption.font = Theme.font(12)
+        caption.textColor = NSColor.white.withAlphaComponent(0.75)
+        caption.alignment = .center
+        let stack = NSStackView(views: [caption, label])
+        stack.orientation = .vertical
+        stack.spacing = 0
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        let background = NSView()
+        background.wantsLayer = true
+        background.layer?.cornerRadius = 28
+        background.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.62).cgColor
+        background.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.centerXAnchor.constraint(equalTo: background.centerXAnchor),
+            stack.centerYAnchor.constraint(equalTo: background.centerYAnchor),
+        ])
+
+        let mouse = NSEvent.mouseLocation
+        let screen = (NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main ?? NSScreen.screens[0]).frame
+        let p = NSPanel(contentRect: NSRect(x: screen.midX - side / 2, y: screen.midY - side / 2, width: side, height: side),
+                        styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        p.isOpaque = false
+        p.backgroundColor = .clear
+        p.hasShadow = true
+        p.level = .popUpMenu // above a menu opened during the countdown
+        p.ignoresMouseEvents = true
+        p.sharingType = .none // never in a screenshot or recording
+        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        p.contentView = background
+        panel = p
+        number = label
+    }
+}

@@ -50,6 +50,8 @@ Click the menu bar icon for the capture panel, or right-click it for the full me
 
 All of them can be changed in **Settings › Shortcuts**. The capture panel adds a time delay, effects
 (border, shadow), sharing (copy to Desktop, show in Finder, open in Preview) and saved presets.
+With a delay set, a large countdown shows in the middle of the screen (and in the menu bar); it disappears
+just before the capture, so it never ends up in the picture.
 
 ### Capturing an area
 
