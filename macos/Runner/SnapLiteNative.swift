@@ -170,9 +170,7 @@ final class SnapLiteNative {
       result(CGPreflightScreenCaptureAccess())
     case "requestScreenAccess":
       let granted = CGRequestScreenCaptureAccess()
-      if !granted, let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
-        NSWorkspace.shared.open(url)
-      }
+      if !granted { PermissionGuide.shared.show() }
       result(granted)
     case "selectRegion":
       RegionSelector.select(hint: args["hint"] as? String ?? "Drag to select an area · Esc to cancel") { rect in

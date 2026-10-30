@@ -58,9 +58,7 @@ final class Shell: NSObject, NSMenuDelegate, NSPopoverDelegate {
         registerHotKeys()
         NotificationCenter.default.addObserver(self, selector: #selector(registerHotKeys), name: Shortcuts.changed, object: nil)
 
-        if !CGPreflightScreenCaptureAccess() {
-            CGRequestScreenCaptureAccess()
-        }
+        ScreenPermission.checkAtLaunch()
     }
 
     // MARK: - Menus
@@ -386,16 +384,7 @@ final class Shell: NSObject, NSMenuDelegate, NSPopoverDelegate {
     }
 
     private func showPermissionAlert() {
-        NSApp.activate()
-        let alert = NSAlert()
-        alert.messageText = "SnapNow needs Screen Recording permission"
-        alert.informativeText = "Turn on SnapNow in System Settings › Privacy & Security › Screen & System Audio Recording, then quit and reopen SnapNow."
-        alert.addButton(withTitle: "Open System Settings")
-        alert.addButton(withTitle: "Cancel")
-        if alert.runModal() == .alertFirstButtonReturn,
-           let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
-            NSWorkspace.shared.open(url)
-        }
+        PermissionGuide.shared.show()
     }
 
     // MARK: - Recording

@@ -273,8 +273,11 @@ repository's source.
    **System Settings › Privacy & Security › Screen & System Audio Recording** (click **+** and choose
    SnapNow if it isn't listed), then quit and reopen SnapNow. The frozen-screen area capture, the full-screen
    capture and recording need it. macOS only asks once; if you dismissed it, use System Settings.
-   Downloaded builds are signed ad hoc, so after an update macOS may need the permission switched off and on
-   again. A sign that it's missing: ⌃⇧C shows the plain macOS crosshair instead of SnapNow's frozen screen.
+   Downloaded builds are signed ad hoc, so macOS treats each update as a new app and the old switch stops
+   counting. SnapNow handles this: after an update it clears its old entry itself and shows one window with the
+   steps (Open System Settings, switch SnapNow on, Relaunch). If SnapNow already looks switched on but keeps
+   asking, click **It's Already On** in that window. A sign that permission is missing: ⌃⇧C shows the plain
+   macOS crosshair instead of SnapNow's frozen screen.
 
 <details>
 <summary>Advanced: skip the Gatekeeper prompt from Terminal</summary>
