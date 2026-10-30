@@ -199,10 +199,10 @@ final class Shell: NSObject, NSMenuDelegate, NSPopoverDelegate {
 
     func perform(_ action: ShortcutAction) {
         switch action {
-        case .region: capture(.region)
-        case .window: capture(.window)
-        case .screen: capture(.screen)
-        case .text: grabText()
+        case .region: afterDelay { $0.capture(.region) }
+        case .window: afterDelay { $0.capture(.window) }
+        case .screen: afterDelay { $0.capture(.screen) }
+        case .text: afterDelay { $0.grabText() }
         case .record: toggleRecording()
         case .library: showLibrary()
         }
@@ -210,9 +210,16 @@ final class Shell: NSObject, NSMenuDelegate, NSPopoverDelegate {
 
     // MARK: - Capture
 
-    @objc private func captureRegion() { capture(.region) }
-    @objc private func captureWindow() { capture(.window) }
-    @objc private func captureScreen() { capture(.screen) }
+    @objc private func captureRegion() { afterDelay { $0.capture(.region) } }
+    @objc private func captureWindow() { afterDelay { $0.capture(.window) } }
+    @objc private func captureScreen() { afterDelay { $0.capture(.screen) } }
+
+    /// Shortcuts and menu captures honour the timer set in the capture panel: count down first when it's on.
+    private func afterDelay(_ run: @escaping (Shell) -> Void) {
+        let config = CaptureConfig.current
+        guard config.delayOn else { return run(self) }
+        countdown(config.delaySeconds) { [weak self] in if let self { run(self) } }
+    }
 
     private func hasPermission() -> Bool {
         if CGPreflightScreenCaptureAccess() { return true }
