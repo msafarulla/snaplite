@@ -49,8 +49,15 @@ class ManimStudioPageState extends State<ManimStudioPage> {
   late ManimDoc doc;
   late String path;
   int? selected;
-  bool drawMode = false; // the Draw tool: dragging on the stage draws a path
+  /// The armed drawing tool: dragging on the stage draws one (a click drops one at its default size); null
+  /// selects and moves objects. Draw ([MKind.path]) draws freehand.
+  MKind? tool;
+  double _toolCurve = 0; // the Curved arrow is the Arrow tool with a bend
+  bool get drawMode => tool == MKind.path;
+  static const drawable = {MKind.rect, MKind.circle, MKind.triangle, MKind.polygon, MKind.star, MKind.arrow, MKind.line};
   List<Offset>? _trail; // the path being drawn, in scene units
+  int? _shapeId; // the shape being dragged out
+  Offset _shapeFrom = Offset.zero;
   final _images = <int, ui.Image>{}; // decoded for the stage
   ({String path, String version})? _manim;
   bool _looked = false, _latex = true, _rendering = false, _hd = false, _showLog = false;
@@ -146,10 +153,36 @@ class ManimStudioPageState extends State<ManimStudioPage> {
     } catch (_) {}
   }
 
+  /// Picks a drawing tool (again: puts it down), or adds an object that isn't drawn (text, math, graph…).
   void add(MKind kind, {double curve = 0}) async {
-    final id = doc.newId();
+    if (drawable.contains(kind) || kind == MKind.path) {
+      final same = tool == kind && _toolCurve == curve;
+      setState(() { tool = same ? null : kind; _toolCurve = curve; selected = null; });
+      return;
+    }
     final n = doc.items.length;
     final at = Offset(((n % 5) - 2) * 0.6, 1.5 - (n % 4) * 1.0); // new objects don't all stack
+    final id = doc.newId();
+    MItem item;
+    if (_make(kind, id, at, curve) case final made?) {
+      item = made;
+    } else {
+      switch (kind) {
+        case MKind.image:
+          final r = await FilePicker.pickFiles(dialogTitle: 'Add Image', type: FileType.image, withData: true);
+          final bytes = r?.files.single.bytes;
+          if (bytes == null) return;
+          item = MItem(id: id, kind: kind, pos: Offset.zero, size: const Size(6, 4), image: bytes);
+          _decodeImage(item);
+        default:
+          return;
+      }
+    }
+    changed(() { doc.items.add(item); selected = id; });
+  }
+
+  /// A new object of `kind` at its default size around `at` (null for images and drawings).
+  MItem? _make(MKind kind, int id, Offset at, double curve) {
     MItem item;
     switch (kind) {
       case MKind.text:
@@ -177,17 +210,58 @@ class ManimStudioPageState extends State<ManimStudioPage> {
         item = MItem(id: id, kind: kind, pos: at, size: const Size(0.16, 0.16), color: palette[3]);
       case MKind.graph:
         item = MItem(id: id, kind: kind, text: 'x^2 / 2', pos: Offset.zero, size: const Size(8, 5), color: palette[1]);
-      case MKind.path:
-        setState(() { drawMode = true; selected = null; });
-        return;
-      case MKind.image:
-        final r = await FilePicker.pickFiles(dialogTitle: 'Add Image', type: FileType.image, withData: true);
-        final bytes = r?.files.single.bytes;
-        if (bytes == null) return;
-        item = MItem(id: id, kind: kind, pos: Offset.zero, size: const Size(6, 4), image: bytes);
-        _decodeImage(item);
+      case MKind.path || MKind.image:
+        return null;
     }
-    changed(() { doc.items.add(item); selected = id; });
+    return item;
+  }
+
+  /// Dragging out the armed tool's shape: arrows and lines run from the press to the pointer, the rest fill
+  /// the dragged box (polygons and stars stay regular).
+  void _startShape(Offset scene) {
+    final id = doc.newId();
+    final item = _make(tool!, id, scene, _toolCurve)!;
+    item.pos = scene;
+    if (item.kind == MKind.arrow || item.kind == MKind.line) {
+      item.end = scene;
+    } else {
+      item.size = const Size(0.01, 0.01);
+    }
+    setState(() { doc.items.add(item); selected = id; _shapeId = id; _shapeFrom = scene; });
+  }
+
+  void _dragShape(Offset q) {
+    final i = doc.items.where((x) => x.id == _shapeId).firstOrNull;
+    if (i == null) return;
+    setState(() {
+      if (i.kind == MKind.arrow || i.kind == MKind.line) {
+        i.end = q;
+        return;
+      }
+      var w = (q.dx - _shapeFrom.dx).abs(), h = (q.dy - _shapeFrom.dy).abs();
+      if (i.kind == MKind.polygon || i.kind == MKind.star) w = h = math.max(w, h);
+      i.size = Size(w, h);
+      i.pos = Offset(_shapeFrom.dx + w / 2 * (q.dx < _shapeFrom.dx ? -1 : 1), _shapeFrom.dy + h / 2 * (q.dy < _shapeFrom.dy ? -1 : 1));
+    });
+  }
+
+  /// A drag too short to mean a size gets the default size where it started.
+  void _endShape() {
+    final i = doc.items.where((x) => x.id == _shapeId).firstOrNull;
+    _shapeId = null;
+    if (i == null) return;
+    final tiny = i.kind == MKind.arrow || i.kind == MKind.line ? (i.end - i.pos).distance < 0.2 : i.size.shortestSide < 0.15;
+    if (tiny) {
+      final d = _make(i.kind, i.id, _shapeFrom, _toolCurve)!;
+      i..pos = d.pos..end = d.end..size = d.size;
+    }
+    changed();
+  }
+
+  /// A click with a tool armed drops one at its default size there.
+  void _dropShape(Offset scene) {
+    final id = doc.newId();
+    changed(() { doc.items.add(_make(tool!, id, scene, _toolCurve)!); selected = id; });
   }
 
   /// A finished stroke becomes a Drawing: smoothed (each point averaged with its neighbours), thinned to the
@@ -312,7 +386,7 @@ class ManimStudioPageState extends State<ManimStudioPage> {
         const SingleActivator(LogicalKeyboardKey.backspace): delete,
         const SingleActivator(LogicalKeyboardKey.keyD, meta: true): duplicate,
         const SingleActivator(LogicalKeyboardKey.enter, meta: true): render,
-        const SingleActivator(LogicalKeyboardKey.escape): () => setState(() { selected = null; drawMode = false; }),
+        const SingleActivator(LogicalKeyboardKey.escape): () => setState(() { selected = null; tool = null; }),
       },
       child: Focus(
         focusNode: _focus,
@@ -337,12 +411,14 @@ class ManimStudioPageState extends State<ManimStudioPage> {
   }
 
   PreferredSizeWidget _bar(ColorScheme scheme) {
-    Widget tool(MKind k, IconData icon) => Tooltip(
-          message: 'Add ${k.label}',
+    BoxDecoration? armed(bool on) => on ? BoxDecoration(color: scheme.primaryContainer, borderRadius: BorderRadius.circular(8)) : null;
+    Widget toolButton(MKind k, IconData icon) => Tooltip(
+          message: drawable.contains(k) ? '${k.label}: drag on the stage to draw it; Esc to stop' : 'Add ${k.label}',
           child: InkWell(
             borderRadius: BorderRadius.circular(8),
             onTap: () => add(k),
-            child: Padding(
+            child: Container(
+              decoration: armed(tool == k && _toolCurve == 0),
               padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
               child: Column(mainAxisSize: MainAxisSize.min, children: [
                 Icon(icon, size: 20),
@@ -356,21 +432,22 @@ class ManimStudioPageState extends State<ManimStudioPage> {
       toolbarHeight: 58,
       titleSpacing: 0,
       title: Row(children: [
-        tool(MKind.text, Icons.title),
-        tool(MKind.math, Icons.functions),
-        _menuTool('Shapes', Icons.category_outlined, [
+        toolButton(MKind.text, Icons.title),
+        toolButton(MKind.math, Icons.functions),
+        _menuTool('Shapes', Icons.category_outlined, armed, [
           (MKind.rect, 'Rectangle'), (MKind.circle, 'Circle'), (MKind.triangle, 'Triangle'), (MKind.polygon, 'Polygon'),
           (MKind.star, 'Star'), (MKind.dot, 'Dot'),
         ]),
-        tool(MKind.arrow, Icons.arrow_right_alt),
+        toolButton(MKind.arrow, Icons.arrow_right_alt),
         Tooltip(
-          message: 'Add Curved Arrow',
+          message: 'Curved Arrow: drag on the stage to draw it; Esc to stop',
           child: InkWell(
             borderRadius: BorderRadius.circular(8),
             onTap: () => add(MKind.arrow, curve: 60),
-            child: const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-              child: Column(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.redo, size: 20), Text('Curved', style: TextStyle(fontSize: 10.5))]),
+            child: Container(
+              decoration: armed(tool == MKind.arrow && _toolCurve != 0),
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+              child: const Column(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.redo, size: 20), Text('Curved', style: TextStyle(fontSize: 10.5))]),
             ),
           ),
         ),
@@ -379,7 +456,7 @@ class ManimStudioPageState extends State<ManimStudioPage> {
           child: InkWell(
             key: const ValueKey('studio-draw'),
             borderRadius: BorderRadius.circular(8),
-            onTap: () => setState(() { drawMode = !drawMode; selected = null; }),
+            onTap: () => add(MKind.path),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
               decoration: BoxDecoration(
@@ -388,11 +465,11 @@ class ManimStudioPageState extends State<ManimStudioPage> {
             ),
           ),
         ),
-        tool(MKind.line, Icons.horizontal_rule),
-        tool(MKind.brace, Icons.data_array),
-        tool(MKind.graph, Icons.show_chart),
-        tool(MKind.numberLine, Icons.linear_scale),
-        tool(MKind.image, Icons.image_outlined),
+        toolButton(MKind.line, Icons.horizontal_rule),
+        toolButton(MKind.brace, Icons.data_array),
+        toolButton(MKind.graph, Icons.show_chart),
+        toolButton(MKind.numberLine, Icons.linear_scale),
+        toolButton(MKind.image, Icons.image_outlined),
       ]),
       actions: [
         TextButton.icon(onPressed: showCode, icon: const Icon(Icons.code, size: 18), label: const Text('Code')),
@@ -418,13 +495,20 @@ class ManimStudioPageState extends State<ManimStudioPage> {
   }
 
   /// A toolbar button with a menu of kinds (the shapes).
-  Widget _menuTool(String label, IconData icon, List<(MKind, String)> kinds) => PopupMenuButton<MKind>(
-        tooltip: 'Add a shape',
+  Widget _menuTool(String label, IconData icon, BoxDecoration? Function(bool) armed, List<(MKind, String)> kinds) =>
+      PopupMenuButton<MKind>(
+        tooltip: 'Pick a shape, then drag on the stage to draw it',
         onSelected: add,
-        itemBuilder: (_) => [for (final (k, l) in kinds) PopupMenuItem(value: k, height: 32, child: Text(l))],
-        child: Padding(
+        itemBuilder: (_) => [
+          for (final (k, l) in kinds) CheckedPopupMenuItem(value: k, height: 32, checked: tool == k, child: Text(l)),
+        ],
+        child: Container(
+          decoration: armed(kinds.any((k) => k.$1 == tool)),
           padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [Icon(icon, size: 20), Text('$label ▾', style: const TextStyle(fontSize: 10.5))]),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Icon(kinds.where((k) => k.$1 == tool).isEmpty ? icon : Icons.edit_outlined, size: 20),
+            Text(kinds.where((k) => k.$1 == tool).map((k) => k.$2).firstOrNull ?? '$label ▾', style: const TextStyle(fontSize: 10.5)),
+          ]),
         ),
       );
 
@@ -456,12 +540,14 @@ class ManimStudioPageState extends State<ManimStudioPage> {
           child: LayoutBuilder(builder: (context, c) {
             _stageSize = c.biggest;
             return MouseRegion(
-              cursor: drawMode ? SystemMouseCursors.precise : MouseCursor.defer,
+              cursor: tool != null ? SystemMouseCursors.precise : MouseCursor.defer,
               child: GestureDetector(
               key: const ValueKey('studio-stage'),
-              onTapDown: (d) { if (!drawMode) setState(() => selected = _hit(d.localPosition)?.$1); },
+              onTapDown: (d) { if (tool == null) setState(() => selected = _hit(d.localPosition)?.$1); },
+              onTapUp: (d) { if (tool != null && !drawMode) _dropShape(_toScene(d.localPosition)); },
               onPanStart: (d) {
                 if (drawMode) { setState(() => _trail = [_toScene(d.localPosition)]); return; }
+                if (tool != null) return _startShape(_toScene(d.localPosition));
                 final h = _hit(d.localPosition);
                 if (h == null) return;
                 setState(() { selected = h.$1; _dragId = h.$1; _dragPart = h.$2; _dragLast = d.localPosition; });
@@ -472,6 +558,7 @@ class ManimStudioPageState extends State<ManimStudioPage> {
                   if ((q - _trail!.last).distance * _ppu >= 2) setState(() => _trail!.add(q));
                   return;
                 }
+                if (_shapeId != null) return _dragShape(_toScene(d.localPosition));
                 final i = doc.items.where((x) => x.id == _dragId).firstOrNull;
                 if (i == null) return;
                 final delta = (d.localPosition - _dragLast) / _ppu;
@@ -495,6 +582,7 @@ class ManimStudioPageState extends State<ManimStudioPage> {
               },
               onPanEnd: (_) {
                 if (_trail != null) return _finishDrawing();
+                if (_shapeId != null) return _endShape();
                 _dragId = null;
                 changed();
               },

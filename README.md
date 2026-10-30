@@ -161,10 +161,12 @@ itself (no screen recording needed).
 **File › New Manim Video** opens Manim Studio: build a [Manim](https://www.manim.community) video visually,
 no code needed.
 
-- **Add** text, math (LaTeX), shapes (rectangle, circle, triangle, polygon, star, dot), arrows and **curved
-  arrows** (a Curve slider; arrowheads at both ends if you like), lines (curved or dashed), **braces** (around
-  the object before them, with a label), graphs (type `x^2`, `sin(x)`, `sqrt(x)`…), number lines and images,
-  then **drag** them on the 16:9 stage (the dots resize, or move an arrow's ends).
+- **Draw** shapes (rectangle, circle, triangle, polygon, star, dot), arrows and **curved arrows** (a Curve
+  slider; arrowheads at both ends if you like) and lines (curved or dashed): pick the tool, then drag on the
+  16:9 stage, as in the editor (a click drops one at its default size; Esc puts the tool down). **Add** text,
+  math (LaTeX), **braces** (around the object before them, with a label), graphs (type `x^2`, `sin(x)`,
+  `sqrt(x)`…), number lines and images. Then **drag** anything to move it (the dots resize, or move an
+  arrow's ends).
 - **Draw** anything freehand: drag on the stage and the stroke becomes a smooth path, with an arrowhead (or
   closed, if you end where you began). Its entrance can be **Fourier Draw**: a chain of spinning circles
   (epicycles) traces your drawing, 3Blue1Brown style; choose how many circles and whether they show.
