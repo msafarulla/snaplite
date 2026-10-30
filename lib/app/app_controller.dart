@@ -105,7 +105,7 @@ class AppController with TrayListener, WindowListener {
     await libraryKey.currentState?.showGrid();
   }
 
-  /// Manim Studio and Animate with Manim are pages pushed over the Library; a new capture or the Library
+  /// Manim Studio is a page pushed over the Library; a new capture or the Library
   /// must come up in front, not stay hidden under them. Studio saves itself as it closes, and a render
   /// already running finishes and lands in the Library.
   void _closePushedPages() {

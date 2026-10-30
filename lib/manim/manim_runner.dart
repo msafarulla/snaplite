@@ -4,7 +4,7 @@ import 'dart:io';
 import '../app/app_controller.dart';
 
 /// Finds the Manim installed on this Mac and renders scenes with it into the captures folder (so results show
-/// in the Library). SnapNow doesn't ship Manim; README › Animate with Manim has the one-time install.
+/// in the Library). SnapNow doesn't ship Manim; README › Manim Studio has the one-time install.
 class ManimRunner {
   /// Where SnapNow looks, in order: its own install, then the usual places.
   static final candidates = [
