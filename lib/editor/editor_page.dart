@@ -715,10 +715,9 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     final next = _state!.copyWith(annotations: [..._state!.annotations, a]);
     _commit(next);
     setState(() => _selection = a.id);
-    if (BuildUpGif.fourier) _playFourier(a);
   }
 
-  /// Draws `a` on with Fourier circles, as the GIF does (a new stroke while the setting is on, or Play).
+  /// Draws `a` on with Fourier circles, as the GIF does (Play; while drawing, the circles follow live).
   void _playFourier(Annotation a) {
     if (Epicycles.of(a) == null) return;
     _fourierTimer?.cancel();
@@ -1767,6 +1766,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
                         ants: _copied ? _ants : null,
                         march: _march,
                         canvasResize: _canvasDrag?.$2,
+                        fourier: BuildUpGif.fourier,
                         guides: _guides,
                         boundsOfSelection: _textEdit != null || selected == null || selected!.rect != null ? null : _bounds(selected!),
                       ),
@@ -2276,10 +2276,12 @@ class _PreviewPainter extends CustomPainter {
   final Rect? canvasResize;
   final Rect? boundsOfSelection;
   final List<Guide> guides;
+  final bool fourier; // Fourier drawing: spinning circles trace the stroke as it's drawn
 
   _PreviewPainter({required this.base, required this.origin, required this.tool, required this.color, required this.size,
       required this.scale, required this.style, this.createStart, this.createCurrent, this.penPoints, this.follow,
-      this.canvasChrome = false, this.ants, required this.march, this.canvasResize, this.boundsOfSelection, this.guides = const []})
+      this.canvasChrome = false, this.ants, required this.march, this.canvasResize, this.boundsOfSelection, this.guides = const [],
+      this.fourier = false})
       : super(repaint: Listenable.merge([ants, march]));
 
   static const _accent = Color(0xFF2F7CF6);
@@ -2298,21 +2300,26 @@ class _PreviewPainter extends CustomPainter {
     canvas.save();
     canvas.scale(scale);
     Annotation ann(Shape s) => Annotation(id: -1, shape: s, color: color, size: this.size, arrowStyle: style, scale: base.state.density);
+    // The stroke being drawn; with Fourier drawing on, its circles follow the pointer in real time
+    void live(Annotation a) {
+      CanvasPainter.drawAnnotation(canvas, a);
+      if (fourier) Epicycles.of(a)?.paint(canvas, 1, color, scale);
+    }
     if (penPoints != null && penPoints!.length > 1) {
-      CanvasPainter.drawAnnotation(canvas, ann(PenShape(penPoints!)));
+      live(ann(PenShape(penPoints!)));
     } else if (createStart != null && createCurrent != null) {
       final a = createStart!, b = createCurrent!, r = Rect.fromPoints(a, b);
       switch (tool) {
         case Tool.arrow:
           final f = follow;
-          CanvasPainter.drawAnnotation(canvas, ann(f == null ? ArrowShape(a, b) : ArrowShape(f.from, f.to, points: f.points, tangents: f.tangents)));
+          live(ann(f == null ? ArrowShape(a, b) : ArrowShape(f.from, f.to, points: f.points, tangents: f.tangents)));
         case Tool.line:
           final f = follow;
-          CanvasPainter.drawAnnotation(canvas, ann(f == null ? LineShape(a, b) : LineShape(f.from, f.to, points: f.points, tangents: f.tangents)));
+          live(ann(f == null ? LineShape(a, b) : LineShape(f.from, f.to, points: f.points, tangents: f.tangents)));
         case Tool.box:
-          CanvasPainter.drawAnnotation(canvas, ann(RectShape(r)));
+          live(ann(RectShape(r)));
         case Tool.ellipse:
-          CanvasPainter.drawAnnotation(canvas, ann(EllipseShape(r)));
+          live(ann(EllipseShape(r)));
         case Tool.highlight:
           CanvasPainter.drawAnnotation(canvas, ann(HighlightShape(r)));
         case Tool.blur:

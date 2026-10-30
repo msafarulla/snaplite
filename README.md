@@ -215,9 +215,10 @@ loops. Retina captures come out at 1.5× their on-screen size: sharp, without be
 step-by-step in a chat or a ticket.
 
 **Fourier drawing.** Tick **Fourier drawing** in the style panel (it shows when an arrow, line, pen, box or
-ellipse is selected or its tool is active). From then on, each line, curve, pen stroke or outline you draw is
-drawn onto the screenshot by a chain of spinning circles whose tip traces it, the 3Blue1Brown epicycle effect,
-made inside SnapNow (no Manim needed). Select a stroke and click **Play** to watch it again. Animated GIFs use
+ellipse is selected or its tool is active). From then on, while you draw a line, curve, pen stroke or outline, a
+chain of spinning circles follows it in real time, its tip on your pointer: the 3Blue1Brown epicycle effect,
+made inside SnapNow (no Manim needed). Select a finished stroke and click **Play** to watch the circles draw it
+from start to end. Animated GIFs use
 the same effect: traced strokes take a little longer to appear so the circles can be seen, while text, steps and
 highlights appear as before. The setting is remembered, and applies to ⇧⌘C, Save as Animated GIF and stickers.
 For a smooth curve, turn on **Curve: follow my drag** for arrows and lines, or use the pen.

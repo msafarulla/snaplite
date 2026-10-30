@@ -506,7 +506,7 @@ void main() {
     expect(editor.selected!.arrowStyle.pattern, LinePattern.antsDotted);
   });
 
-  testWidgets('Fourier drawing: a new curve is drawn on by spinning circles; Play replays it', (tester) async {
+  testWidgets('Fourier drawing: circles follow the curve live while drawing; Play replays it', (tester) async {
     final editor = await pumpEditor(tester);
     await tester.tap(find.text('Arrow').first);
     await tester.pump();
@@ -515,6 +515,9 @@ void main() {
     addTearDown(() => BuildUpGif.fourier = false);
     await tester.pump();
     expect(find.text('Fourier drawing'), findsOneWidget, reason: 'the option is in the panel');
+    dynamic preview() => tester.widgetList<CustomPaint>(find.byType(CustomPaint))
+        .map((c) => c.painter).firstWhere((p) => p.runtimeType.toString() == '_PreviewPainter');
+    CanvasPainter painter() => preview().base as CanvasPainter;
 
     final start = onCanvas(tester, 0.2, 0.6);
     final g = await tester.startGesture(start);
@@ -522,28 +525,24 @@ void main() {
       final t = i / 30;
       await g.moveTo(start + Offset(400 * t, -200 * (1 - (2 * t - 1) * (2 * t - 1))));
       await tester.pump();
+      if (i == 15) {
+        expect(preview().fourier, isTrue, reason: 'the circles trace it while dragging');
+        expect(preview().follow, isNotNull, reason: 'a curve is being drawn');
+      }
     }
     await g.up();
-    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 500))); // the timer reads the real clock
-    await tester.pump(const Duration(milliseconds: 20));
-    CanvasPainter painter() => tester.widgetList<CustomPaint>(find.byType(CustomPaint))
-        .map((c) => c.painter).whereType<CustomPainter>()
-        .map((p) => (p as dynamic).base).whereType<CanvasPainter>().first;
-    expect(painter().epicycles, isTrue, reason: 'the circles are drawing it');
-    final t = painter().progress![editor.selected!.id]!;
-    expect(t, inExclusiveRange(0, 1), reason: 'part-way drawn on');
-
-    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 1900)));
-    await tester.pump(const Duration(milliseconds: 50));
-    expect(painter().epicycles, isFalse, reason: 'done: the curve stays, the circles go');
-    expect(painter().progress, isNull);
+    await tester.pump();
+    expect(painter().progress, isNull, reason: 'already drawn live: no replay on release');
 
     expect(find.text('Play'), findsOneWidget);
     await tester.tap(find.text('Play'));
-    await tester.pump(const Duration(milliseconds: 50));
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 500))); // the timer reads the real clock
+    await tester.pump(const Duration(milliseconds: 20));
     expect(painter().epicycles, isTrue, reason: 'Play draws it again');
-    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 1900)));
+    expect(painter().progress![editor.selected!.id], inExclusiveRange(0, 1));
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 1500)));
     await tester.pump(const Duration(milliseconds: 50));
+    expect(painter().progress, isNull, reason: 'done: the curve stays, the circles go');
   });
 
   testWidgets('Curve: a new arrow follows the dragged path; off, it goes straight', (tester) async {
