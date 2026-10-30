@@ -163,17 +163,17 @@ class Epicycles {
     final ring = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = hair
-      ..color = Colors.white.withValues(alpha: 0.55);
+      ..color = Colors.white.withValues(alpha: 0.38); // dim, so the stroke being drawn stands out
     final arm = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = hair * 1.4
       ..strokeCap = StrokeCap.round
-      ..color = color.withValues(alpha: 0.9);
+      ..color = color.withValues(alpha: 0.75);
     final halo = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = hair * 3
       ..strokeCap = StrokeCap.round
-      ..color = Colors.black.withValues(alpha: 0.35);
+      ..color = Colors.black.withValues(alpha: 0.25);
     for (var i = 0; i < c.length - 1; i++) {
       final r = (c[i + 1] - c[i]).distance;
       if (r * scale < 1.5) continue; // too small to see
