@@ -2330,7 +2330,7 @@ class _PreviewPainter extends CustomPainter {
     void live(Annotation a) {
       if (!fourier) return CanvasPainter.drawAnnotation(canvas, a);
       CanvasPainter.drawAnnotation(canvas, Epicycles.fourierized(a)); // what you'll get: the curve the circles trace
-      Epicycles.of(a)?.paint(canvas, 1, color, scale);
+      Epicycles.proper(a)?.paint(canvas, 1, color, scale); // the same circles that make that curve
     }
     if (penPoints != null && penPoints!.length > 1) {
       live(ann(PenShape(penPoints!)));

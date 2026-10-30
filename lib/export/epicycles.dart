@@ -16,7 +16,10 @@ class Epicycles {
   Epicycles._(this.center, this.terms, this.closed);
 
   static const _samples = 128, _maxCircles = 30;
-  static final _cache = Expando<Epicycles>();
+  /// A proper Fourier curve keeps only the low harmonics, enough for 99.95% of the shape's energy and at most
+  /// [_maxHarmonic]: smooth by construction, so a wobble in the drag can't survive.
+  static const _keep = 0.9995, _maxHarmonic = 16;
+  static final _cache = Expando<Epicycles>(), _properCache = Expando<Epicycles>();
 
   static bool fits(Annotation a) =>
       a.shape is ArrowShape || a.shape is LineShape || a.shape is PenShape || a.shape is RectShape || a.shape is EllipseShape;
@@ -26,7 +29,14 @@ class Epicycles {
     return _cache[a.shape] ??= _build(a);
   }
 
-  static Epicycles? _build(Annotation a) {
+  /// The band-limited circles Fourier drawing uses: what they trace is the curve you keep.
+  static Epicycles? proper(Annotation a) {
+    if (!fits(a)) return null;
+    if (a.shape is RectShape || a.shape is EllipseShape) return of(a); // kept as drawn, corners and all
+    return _properCache[a.shape] ??= _build(a, proper: true);
+  }
+
+  static Epicycles? _build(Annotation a, {bool proper = false}) {
     final path = CanvasPainter.outlinePath(a);
     final metric = path.computeMetrics().firstOrNull;
     if (metric == null || metric.length < 4) return null;
@@ -51,9 +61,19 @@ class Epicycles {
       terms.add((freq: k.toDouble(), re: re / n, im: im / n));
     }
     final dc = terms.firstWhere((t) => t.freq == 0);
-    final rest = terms.where((t) => t.freq != 0).toList()
-      ..sort((x, y) => (y.re * y.re + y.im * y.im).compareTo(x.re * x.re + x.im * x.im));
-    return Epicycles._(Offset(dc.re, dc.im), rest.take(_maxCircles).toList(), closed);
+    double power(({double freq, double re, double im}) t) => t.re * t.re + t.im * t.im;
+    var rest = terms.where((t) => t.freq != 0).toList();
+    if (proper) {
+      final total = rest.fold(0.0, (sum, t) => sum + power(t));
+      var harmonic = 1, kept = 0.0;
+      for (; harmonic < _maxHarmonic; harmonic++) {
+        kept += rest.where((t) => t.freq.abs() == harmonic).fold(0.0, (sum, t) => sum + power(t));
+        if (total == 0 || kept / total >= _keep) break;
+      }
+      rest = rest.where((t) => t.freq.abs() <= harmonic).toList();
+    }
+    rest.sort((x, y) => power(y).compareTo(power(x)));
+    return Epicycles._(Offset(dc.re, dc.im), proper ? rest : rest.take(_maxCircles).toList(), closed);
   }
 
   /// The point the circles trace at `along` (0…1 of the stroke), and its rate of change per unit of `along`.
@@ -68,10 +88,10 @@ class Epicycles {
     return (at: p, d: d);
   }
 
-  /// `a` redrawn as the curve its circles trace: a smooth Fourier curve (Fourier drawing turns every new
-  /// arrow, line and pen stroke into one). An open stroke keeps its ends exactly where they were drawn.
+  /// `a` redrawn as the curve its band-limited circles trace: a smooth Fourier curve (Fourier drawing turns
+  /// every new arrow, line and pen stroke into one). An open stroke keeps its ends exactly where they were drawn.
   static Annotation fourierized(Annotation a) {
-    final e = of(a);
+    final e = proper(a);
     if (e == null || a.shape is RectShape || a.shape is EllipseShape) return a;
     final metric = CanvasPainter.outlinePath(a).computeMetrics().first;
     final start = metric.getTangentForOffset(0)!.position, end = metric.getTangentForOffset(metric.length)!.position;

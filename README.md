@@ -218,8 +218,9 @@ step-by-step in a chat or a ticket.
 ellipse is selected or its tool is active). From then on, while you draw a line, curve, pen stroke or outline, a
 chain of spinning circles follows it in real time, its tip on your pointer: the 3Blue1Brown epicycle effect,
 made inside SnapNow (no Manim needed). Select a finished stroke and click **Play** to watch the circles draw it
-from start to end. What you keep is exactly the curve the circles trace: a smooth Fourier curve, with its ends
-right where you pressed and let go, and a straight drag stays perfectly straight. Animated GIFs use
+from start to end. What you keep is exactly the curve the circles trace: a proper Fourier curve made of only the
+few low harmonics the shape needs (so a shaky hand can't put a wobble in it), with its ends right where you
+pressed and let go, and a straight drag stays perfectly straight. Animated GIFs use
 the same effect: traced strokes take a little longer to appear so the circles can be seen, while text, steps and
 highlights appear as before. The setting is remembered, and applies to ⇧⌘C, Save as Animated GIF and stickers.
 Without Fourier drawing, arrows and lines still follow your drag (**Curve: follow my drag**, on by default): a

@@ -56,6 +56,27 @@ void main() {
     });
   });
 
+  test('Fourier drawing keeps a proper Fourier curve: a wobbly drag comes out smooth, ends where it was drawn', () {
+    final rnd = math.Random(7);
+    final shaky = [for (var i = 0; i <= 120; i++) Offset(40 + i * 3.0, 150 + 60 * math.sin(i / 120 * 2 * math.pi) + rnd.nextDouble() * 8 - 4)];
+    final a = Annotation(id: 1, shape: PenShape(shaky));
+    final e = Epicycles.proper(a)!;
+    final top = e.terms.map((t) => t.freq.abs()).reduce(math.max);
+    expect(top, lessThanOrEqualTo(16), reason: 'only low harmonics: smooth by construction');
+    expect(e.terms.length, lessThan(Epicycles.of(a)!.terms.length), reason: 'fewer circles than tracing the raw drag');
+    final pts = (Epicycles.fourierized(a).shape as PenShape).points;
+    expect((pts.first - shaky.first).distance, lessThan(0.01));
+    expect((pts.last - shaky.last).distance, lessThan(0.01));
+    // No zig-zag left: the direction turns gently from one point to the next
+    var worst = 0.0;
+    for (var i = 2; i < pts.length; i++) {
+      final d1 = pts[i - 1] - pts[i - 2], d2 = pts[i] - pts[i - 1];
+      final turn = (math.atan2(d2.dy, d2.dx) - math.atan2(d1.dy, d1.dx) + 3 * math.pi) % (2 * math.pi) - math.pi;
+      worst = math.max(worst, turn.abs());
+    }
+    expect(worst, lessThan(0.35), reason: 'smooth, no jitter from the shaky hand');
+  });
+
   test('traced strokes appear slower so the circles can be seen', () {
     BuildUpGif.fourier = true;
     addTearDown(() => BuildUpGif.fourier = false);
