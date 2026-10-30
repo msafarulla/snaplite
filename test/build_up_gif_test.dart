@@ -64,6 +64,30 @@ void main() {
     expect(worst, lessThan(64), reason: '255 colours for a full gradient: banding, but no garbage');
   });
 
+  test('build-up GIF focuses on the markup, not the whole capture', () async {
+    int u16(Uint8List b, int o) => b[o] | (b[o + 1] << 8); // GIF logical screen size (little-endian)
+    final rec = ui.PictureRecorder();
+    Canvas(rec).drawRect(const Rect.fromLTWH(0, 0, 800, 400), Paint()..color = Colors.white);
+    final base = await rec.endRecording().toImage(800, 400);
+    // One small box in the lower-right: markup covers a tiny fraction of the big capture.
+    final s = CanvasState(image: base, annotations: const [
+      Annotation(id: 1, shape: RectShape(Rect.fromLTWH(600, 300, 80, 50)), color: Color(0xFFFF0000)),
+    ]);
+
+    BuildUpGif.focusOnMarkup = true;
+    final cropped = await BuildUpGif.render(s);
+    final cw = u16(cropped, 6), ch = u16(cropped, 8);
+    expect(cw, lessThan(200), reason: 'cropped tight to the 80px-wide markup, not 800');
+    expect(ch, lessThan(200));
+    expect(cw, greaterThan(60), reason: 'markup plus its margin is still there');
+
+    BuildUpGif.focusOnMarkup = false;
+    final full = await BuildUpGif.render(s);
+    expect(u16(full, 6), 800, reason: 'off = the whole capture');
+    expect(u16(full, 8), 400);
+    BuildUpGif.focusOnMarkup = true; // restore the default
+  });
+
   testWidgets('painter: an arrow half-way through appearing is drawn from its tail only', (tester) async {
     await tester.runAsync(() async {
       final rec = ui.PictureRecorder();

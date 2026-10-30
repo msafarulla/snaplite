@@ -26,6 +26,10 @@ class BuildUpGif {
   /// Fourier circles trace lines, pen strokes and outlines as they draw on (the editor's setting).
   static bool fourier = false;
 
+  /// The GIF's canvas is the whole original captured image. Optionally it can crop to the markup's bounding
+  /// box plus a margin (the point of interest) — off by default: the original image stays the canvas.
+  static bool focusOnMarkup = false;
+
   /// How long an annotation takes to appear: lines and outlines draw on a bit slower than pops and fades,
   /// and slower still while Fourier circles trace them, so the circles can be seen.
   static Duration appearing(Annotation a) => fourier && Epicycles.of(a) != null ? fourierDraw : switch (a.shape) {
@@ -40,7 +44,14 @@ class BuildUpGif {
 
   static Future<Uint8List> render(CanvasState s) async {
     final k = outputScale(s);
-    final w = math.max(1, (s.image.width * k).round()), h = math.max(1, (s.image.height * k).round());
+    final fullW = math.max(1, (s.image.width * k).round()), fullH = math.max(1, (s.image.height * k).round());
+    // Focus the animation on the markup, not the whole capture (see [focusOnMarkup]).
+    final focus = focusOnMarkup ? await _markupBounds(s, k, fullW, fullH) : null;
+    final crop = focus == null
+        ? Rect.fromLTWH(0, 0, s.image.width.toDouble(), s.image.height.toDouble())
+        : _withMargin(focus, s.image.width.toDouble(), s.image.height.toDouble());
+    final origin = crop.topLeft;
+    final w = math.max(1, (crop.width * k).round()), h = math.max(1, (crop.height * k).round());
     final progress = <int, double>{};
     final march = ValueNotifier<double>(0);
     final frames = <GifFrame>[];
@@ -48,7 +59,7 @@ class BuildUpGif {
 
     // Each frame keeps only the rectangle that changed; pixels in it that didn't change stay transparent.
     Future<void> frame(Duration delay) async {
-      final pixels = await _snapshot(s, progress, march, k, w, h);
+      final pixels = await _snapshot(s, progress, march, k, w, h, origin: origin);
       if (previous == null) {
         frames.add(GifFrame(0, 0, w, h, pixels.buffer.asUint8List(), delay.inMilliseconds));
       } else {
@@ -64,6 +75,29 @@ class BuildUpGif {
 
     await _timeline(s, progress, march, fps, frame, (d) => frames.last.delayMs += d.inMilliseconds);
     return _encodeInBackground(w, h, frames);
+  }
+
+  /// The bounding box (image pixels) of everything drawn over the capture, or null when nothing shows.
+  /// Measured by what changes between the bare capture and the fully-drawn one, so it covers every shape,
+  /// stroke, arrowhead, shadow and glyph exactly. Fourier circles are transient (gone at t=1) and left out.
+  static Future<Rect?> _markupBounds(CanvasState s, double k, int w, int h) async {
+    final zero = ValueNotifier<double>(0);
+    final bare = await _snapshot(s.copyWith(annotations: const []), null, zero, k, w, h);
+    final withMarkup = await _snapshot(s, null, zero, k, w, h); // null progress = everything shown
+    var r = _changedRect(bare, withMarkup, w, h); // output-pixel coordinates
+    // Fourier circles sweep widest mid-draw and are gone at t=1, so include a mid pass or they get clipped.
+    if (fourier && s.annotations.any((a) => Epicycles.of(a) != null)) {
+      final mid = {for (final a in s.annotations) a.id: 0.5};
+      final r2 = _changedRect(bare, await _snapshot(s, mid, zero, k, w, h), w, h);
+      r = r == null ? r2 : (r2 == null ? r : r.expandToInclude(r2));
+    }
+    return r == null ? null : Rect.fromLTRB(r.left / k, r.top / k, r.right / k, r.bottom / k);
+  }
+
+  /// The focus box grown by a margin (≈8% of its longer side) and clamped to the image.
+  static Rect _withMargin(Rect focus, double imgW, double imgH) {
+    final m = math.max(focus.width, focus.height) * 0.08;
+    return focus.inflate(m).intersect(Rect.fromLTWH(0, 0, imgW, imgH));
   }
 
   /// Whether any annotation uses the Marching Ants pattern.
@@ -178,9 +212,11 @@ class BuildUpGif {
   /// One frame as RGBA pixels that are either opaque or 0. GIF has no partial transparency, so transparent
   /// canvas areas (a window's rounded corners) stay transparent and their soft edges are blended onto white.
   static Future<Uint32List> _snapshot(CanvasState s, Map<int, double>? progress, ValueListenable<double> march, double k,
-      int w, int h) async {
+      int w, int h, {Offset origin = Offset.zero}) async {
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
+    // Crop to a focus box: shift it to the top-left corner, then only the w×h window is rasterized.
+    if (origin != Offset.zero) canvas.translate(-origin.dx * k, -origin.dy * k);
     CanvasPainter(state: s, selectionId: null, scale: k, progress: progress, march: march, epicycles: fourier)
         .paint(canvas, Size(w.toDouble(), h.toDouble()));
     final image = await recorder.endRecording().toImage(w, h);

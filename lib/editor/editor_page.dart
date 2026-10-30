@@ -1838,7 +1838,8 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
           behavior: HitTestBehavior.opaque,
           onTap: close,
           child: ColoredBox(
-            color: Colors.black.withValues(alpha: 0.45),
+            // Opaque, so the live editor canvas (the same capture) doesn't ghost through behind the GIF.
+            color: const Color(0xFF17171A),
             child: Padding(
               padding: const EdgeInsets.all(28),
               child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
