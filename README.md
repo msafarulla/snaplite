@@ -163,7 +163,8 @@ no code needed.
 
 - **Draw** shapes (rectangle, circle, triangle, polygon, star, dot), arrows and **curved arrows** (a Curve
   slider; arrowheads at both ends if you like) and lines (curved or dashed): pick the tool, then drag on the
-  16:9 stage, as in the editor (a click drops one at its default size; Esc puts the tool down). **Add** text,
+  16:9 stage, as in the editor (a click drops one at its default size; Esc puts the tool down). Arrows and
+  lines follow your drag: straight gives a plain arrow, curvy gives an arrow along the path you drew. **Add** text,
   math (LaTeX), **braces** (around the object before them, with a label), graphs (type `x^2`, `sin(x)`,
   `sqrt(x)`…), number lines and images. Then **drag** anything to move it (the dots resize, or move an
   arrow's ends).

@@ -216,17 +216,13 @@ class ManimStudioPageState extends State<ManimStudioPage> {
     return item;
   }
 
-  /// Dragging out the armed tool's shape: arrows and lines run from the press to the pointer, the rest fill
-  /// the dragged box (polygons and stars stay regular).
+  /// Dragging out the armed shape: it fills the dragged box (polygons and stars stay regular). Arrows and
+  /// lines follow the drag instead ([_finishDrawing]).
   void _startShape(Offset scene) {
     final id = doc.newId();
-    final item = _make(tool!, id, scene, _toolCurve)!;
-    item.pos = scene;
-    if (item.kind == MKind.arrow || item.kind == MKind.line) {
-      item.end = scene;
-    } else {
-      item.size = const Size(0.01, 0.01);
-    }
+    final item = _make(tool!, id, scene, _toolCurve)!
+      ..pos = scene
+      ..size = const Size(0.01, 0.01);
     setState(() { doc.items.add(item); selected = id; _shapeId = id; _shapeFrom = scene; });
   }
 
@@ -234,10 +230,6 @@ class ManimStudioPageState extends State<ManimStudioPage> {
     final i = doc.items.where((x) => x.id == _shapeId).firstOrNull;
     if (i == null) return;
     setState(() {
-      if (i.kind == MKind.arrow || i.kind == MKind.line) {
-        i.end = q;
-        return;
-      }
       var w = (q.dx - _shapeFrom.dx).abs(), h = (q.dy - _shapeFrom.dy).abs();
       if (i.kind == MKind.polygon || i.kind == MKind.star) w = h = math.max(w, h);
       i.size = Size(w, h);
@@ -250,10 +242,9 @@ class ManimStudioPageState extends State<ManimStudioPage> {
     final i = doc.items.where((x) => x.id == _shapeId).firstOrNull;
     _shapeId = null;
     if (i == null) return;
-    final tiny = i.kind == MKind.arrow || i.kind == MKind.line ? (i.end - i.pos).distance < 0.2 : i.size.shortestSide < 0.15;
-    if (tiny) {
+    if (i.size.shortestSide < 0.15) {
       final d = _make(i.kind, i.id, _shapeFrom, _toolCurve)!;
-      i..pos = d.pos..end = d.end..size = d.size;
+      i..pos = d.pos..size = d.size;
     }
     changed();
   }
@@ -265,10 +256,26 @@ class ManimStudioPageState extends State<ManimStudioPage> {
   }
 
   /// A finished stroke becomes a Drawing: smoothed (each point averaged with its neighbours), thinned to the
-  /// points that matter, and stored around its centre so it moves as one.
+  /// points that matter, and stored around its centre so it moves as one. With the Arrow or Line tool it
+  /// follows the drag the same way: a straight drag gives a plain Manim arrow (or line), a curvy one an
+  /// arrow (or line) along the path drawn.
   void _finishDrawing() {
     final raw = _trail;
     _trail = null;
+    final line = tool == MKind.arrow || tool == MKind.line;
+    if (line && raw != null && raw.isNotEmpty) {
+      final a = raw.first, b = raw.last, len = (b - a).distance;
+      if (len < 0.2 && raw.length < 3) return _dropShape(a); // barely moved: one at its default size
+      final straight = raw.every((p) => _offLine(p, a, b) < math.max(0.12, len * 0.06));
+      if (straight) {
+        final id = doc.newId();
+        final item = _make(tool!, id, a, _toolCurve)!
+          ..pos = a
+          ..end = b;
+        changed(() { doc.items.add(item); selected = id; });
+        return;
+      }
+    }
     if (raw == null || raw.length < 3) { setState(() {}); return; }
     const k = 2;
     final smooth = [
@@ -284,11 +291,19 @@ class ManimStudioPageState extends State<ManimStudioPage> {
     var kept = _simplify(smooth, eps);
     while (kept.length > 120) { eps *= 1.5; kept = _simplify(smooth, eps); }
     final centre = kept.fold(Offset.zero, (a, b) => a + b) / kept.length.toDouble();
-    final closed = (kept.first - kept.last).distance < 0.35 && kept.length > 6; // ended near where it began
+    final closed = !line && (kept.first - kept.last).distance < 0.35 && kept.length > 6; // ended near where it began
     final id = doc.newId();
     final item = MItem(id: id, kind: MKind.path, pos: centre, points: [for (final q in kept) q - centre], closed: closed,
-        arrowTip: !closed, color: palette[1], stroke: 5, runTime: 3);
+        arrowTip: line ? tool == MKind.arrow : !closed, color: palette[line ? 3 : 1], stroke: 5, runTime: line ? 1.5 : 3,
+        enter: line ? MEnter.create : null); // an arrow draws itself on; a freehand drawing gets Fourier Draw
     changed(() { doc.items.add(item); selected = id; });
+  }
+
+  /// How far `p` is from the line through `a` and `b`.
+  static double _offLine(Offset p, Offset a, Offset b) {
+    final ab = b - a, len = ab.distance;
+    if (len == 0) return (p - a).distance;
+    return ((p - a).dx * ab.dy - (p - a).dy * ab.dx).abs() / len;
   }
 
   static List<Offset> _simplify(List<Offset> pts, double eps) {
@@ -546,7 +561,10 @@ class ManimStudioPageState extends State<ManimStudioPage> {
               onTapDown: (d) { if (tool == null) setState(() => selected = _hit(d.localPosition)?.$1); },
               onTapUp: (d) { if (tool != null && !drawMode) _dropShape(_toScene(d.localPosition)); },
               onPanStart: (d) {
-                if (drawMode) { setState(() => _trail = [_toScene(d.localPosition)]); return; }
+                if (drawMode || tool == MKind.arrow || tool == MKind.line) {
+                  setState(() => _trail = [_toScene(d.localPosition)]);
+                  return;
+                }
                 if (tool != null) return _startShape(_toScene(d.localPosition));
                 final h = _hit(d.localPosition);
                 if (h == null) return;

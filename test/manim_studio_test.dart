@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -127,6 +128,30 @@ void main() {
     expect(small.id, isNot(star.id));
     expect(small.size, const Size(2.2, 2.2), reason: 'a drag too short to mean a size');
     expect(small.pos.dx, closeTo(3, 0.3));
+    await t.pump(const Duration(seconds: 1));
+  });
+
+  testWidgets('the Arrow tool follows the drag: a curvy drag is an arrow along that path', (t) async {
+    final s = await pump(t);
+    await t.tap(find.text('Arrow'));
+    await t.pump();
+    final stage = t.getRect(find.byKey(const ValueKey('studio-stage')));
+    final g = await t.startGesture(stage.center - const Offset(200, 0));
+    for (var k = 1; k <= 20; k++) {
+      await g.moveTo(stage.center + Offset(-200 + k * 20.0, -120 * math.sin(k / 20 * math.pi)));
+      await t.pump();
+    }
+    await g.up();
+    await t.pump();
+    final arrow = s.doc.items.last;
+    expect(arrow.kind, MKind.path, reason: 'drawn along the drag, not a stock arrow');
+    expect(arrow.arrowTip, isTrue);
+    expect(arrow.closed, isFalse);
+    expect(arrow.enter, MEnter.create, reason: 'it draws itself on');
+    final code = s.doc.code();
+    expect(code, contains('m${arrow.id}.set_points_smoothly('));
+    expect(code, contains('add_tip('));
+    expect(s.tool, MKind.arrow, reason: 'the tool stays for the next one');
     await t.pump(const Duration(seconds: 1));
   });
 
