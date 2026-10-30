@@ -56,7 +56,7 @@ and text captures count down first. The countdown and outline never end up in th
 
 ### Scheduled screenshots
 
-Menu bar › **Scheduled Screenshots** takes a screenshot of every screen on a timer (every 10 seconds up to every
+Menu bar › **Scheduled Screenshots** takes a screenshot of every screen on a timer (every 3 seconds up to every
 hour) into a folder you choose, one folder per day: `<folder>/20261030/153012.png` (other screens add `-2`, `-3`).
 The default folder is Pictures › SnapNow Scheduled. While it runs, the menu bar icon shows a clock; turns are
 skipped while the screen is locked. It keeps running after a relaunch, with a notice saying so.

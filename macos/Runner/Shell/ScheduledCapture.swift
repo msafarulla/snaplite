@@ -8,7 +8,7 @@ final class ScheduledCapture: NSObject, NSMenuDelegate {
     static let shared = ScheduledCapture()
 
     static let intervals: [(String, TimeInterval)] = [
-        ("Every 10 Seconds", 10), ("Every 30 Seconds", 30), ("Every Minute", 60), ("Every 5 Minutes", 300),
+        ("Every 3 Seconds", 3), ("Every 5 Seconds", 5), ("Every 10 Seconds", 10), ("Every 30 Seconds", 30), ("Every Minute", 60), ("Every 5 Minutes", 300),
         ("Every 15 Minutes", 900), ("Every 30 Minutes", 1800), ("Every Hour", 3600),
     ]
 
