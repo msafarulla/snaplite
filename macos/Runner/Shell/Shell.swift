@@ -199,7 +199,7 @@ final class Shell: NSObject, NSMenuDelegate, NSPopoverDelegate {
 
     func perform(_ action: ShortcutAction) {
         switch action {
-        case .region: afterDelay { $0.capture(.region) }
+        case .region: captureRegion()
         case .window: afterDelay { $0.capture(.window) }
         case .screen: afterDelay { $0.capture(.screen) }
         case .text: afterDelay { $0.grabText() }
@@ -210,11 +210,15 @@ final class Shell: NSObject, NSMenuDelegate, NSPopoverDelegate {
 
     // MARK: - Capture
 
-    @objc private func captureRegion() { afterDelay { $0.capture(.region) } }
+    /// The area is picked first; the panel's timer then counts down before it's captured.
+    @objc private func captureRegion() {
+        let config = CaptureConfig.current
+        capture(.region, delay: config.delayOn ? config.delaySeconds : 0)
+    }
     @objc private func captureWindow() { afterDelay { $0.capture(.window) } }
     @objc private func captureScreen() { afterDelay { $0.capture(.screen) } }
 
-    /// Shortcuts and menu captures honour the timer set in the capture panel: count down first when it's on.
+    /// Window, screen and text shortcuts honour the panel's timer: count down first when it's on.
     private func afterDelay(_ run: @escaping (Shell) -> Void) {
         let config = CaptureConfig.current
         guard config.delayOn else { return run(self) }
@@ -281,18 +285,22 @@ final class Shell: NSObject, NSMenuDelegate, NSPopoverDelegate {
             case .text: self.grabText()
             }
         }
-        if config.delayOn {
+        if config.delayOn && config.mode == .area {
+            // Pick the area first; the countdown runs after it
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in self?.capture(.region, delay: config.delaySeconds) }
+        } else if config.delayOn {
             countdown(config.delaySeconds, then: run)
         } else {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: run)   // let the panel fade out first
         }
     }
 
-    func capture(_ mode: CaptureMode, cursor: Bool = false) {
+    /// `delay`: for a region, pick the area first, then count down and capture it.
+    func capture(_ mode: CaptureMode, cursor: Bool = false, delay: Int = 0) {
         guard !busy, !recorder.isRecording, hasPermission() else { return }
         busy = true
         let config = CaptureConfig.current
-        Capture.run(mode, cursor: cursor, windowShadow: config.windowShadow, sound: config.captureSound) { [weak self] url in
+        Capture.run(mode, cursor: cursor, windowShadow: config.windowShadow, sound: config.captureSound, delay: delay) { [weak self] url in
             self?.busy = false
             if let url { self?.handleCapture(url) }   // nil: the user pressed Esc
         }
@@ -329,7 +337,7 @@ final class Shell: NSObject, NSMenuDelegate, NSPopoverDelegate {
 
     /// The menu's delayed region capture.
     @objc private func captureDelayed(_ sender: NSMenuItem) {
-        countdown(sender.tag) { [weak self] in self?.capture(.region) }
+        capture(.region, delay: sender.tag)
     }
 
     /// Counts down on screen and in the menu bar (time to open a menu or hover something), then runs `action`.

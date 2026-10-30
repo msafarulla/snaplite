@@ -4,7 +4,8 @@ import ScreenCaptureKit
 /// Region capture in the style of Snagit: the screen freezes and dims, dashed crosshair lines follow the
 /// cursor, the window under it is outlined, and a magnifier shows the pixels and the size. Drag for an
 /// area, click for the outlined window (or the whole screen), Esc cancels. Drags stay on the screen they
-/// start on. The capture is cut from the frozen image, so it matches what was on screen when it began.
+/// start on. The capture is cut from the frozen image, so it matches what was on screen when it began; with a
+/// delay, the area is picked first, then a countdown runs over the live screen and the area is captured after it.
 final class RegionCapture {
     private static var current: RegionCapture?
 
@@ -22,6 +23,9 @@ final class RegionCapture {
     private var url: URL!
     private var sound = false
     private var previousApp: NSRunningApplication?   // where Esc returns to
+    private var delay = 0                              // seconds between picking the area and capturing it
+    private var countdownTimer: Timer?
+    private var outline: NSWindow?
 
     var mouse = NSEvent.mouseLocation
     var antsPhase: CGFloat = 0
@@ -30,11 +34,12 @@ final class RegionCapture {
     var dragScreen: NSScreen?
 
     /// `fallback` runs instead when the screen can't be frozen (no image, or a blank one).
-    static func start(to url: URL, sound: Bool, completion: @escaping (URL?) -> Void, fallback: @escaping () -> Void) {
+    static func start(to url: URL, sound: Bool, delay: Int = 0, completion: @escaping (URL?) -> Void, fallback: @escaping () -> Void) {
         current?.finish(nil)
         let capture = RegionCapture()
         capture.url = url
         capture.sound = sound
+        capture.delay = delay
         capture.completion = completion
         let front = NSWorkspace.shared.frontmostApplication
         capture.previousApp = front?.processIdentifier == ProcessInfo.processInfo.processIdentifier ? nil : front
@@ -220,7 +225,58 @@ final class RegionCapture {
         let rect = isDragging ? selection : overOffered ? offered.map { $0.intersection(screen.frame) } : (hoveredWindow ?? screen.frame)
         dragStart = nil
         guard let r = rect, r.width >= 1, r.height >= 1, let f = frozen.first(where: { $0.screen == screen }) else { finish(nil); return }
-        finish(save(r, from: f) ? remember(r) : nil)
+        take(r, from: f)
+    }
+
+    /// Captures the picked area: straight from the frozen screen, or after the countdown from the live one.
+    private func take(_ r: CGRect, from f: Frozen) {
+        guard delay > 0 else { finish(save(r, from: f) ? remember(r) : nil); return }
+        closeOverlays()
+        outline = Self.showOutline(r)
+        var remaining = delay
+        CountdownHUD.show(remaining)
+        countdownTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] timer in
+            guard let self else { timer.invalidate(); return }
+            remaining -= 1
+            if remaining > 0 { CountdownHUD.show(remaining); return }
+            timer.invalidate()
+            self.countdownTimer = nil
+            CountdownHUD.hide()
+            self.outline?.orderOut(nil)
+            self.outline = nil
+            // A moment for the countdown and outline to leave the screen, then the screen as it is now
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                Task { @MainActor in
+                    guard RegionCapture.current === self, self.completion != nil else { return } // replaced or cancelled
+                    let ok = await self.freezeWithScreenCaptureKit() || self.freeze()
+                    guard RegionCapture.current === self, self.completion != nil else { return }
+                    guard ok, let live = self.frozen.first(where: { $0.screen == f.screen }) else { self.finish(nil); return }
+                    self.finish(self.save(r, from: live) ? self.remember(r) : nil)
+                }
+            }
+        }
+    }
+
+    /// The picked area outlined on the live screen during the countdown: click-through, never captured.
+    private static func showOutline(_ r: CGRect) -> NSWindow {
+        let pad: CGFloat = 3
+        let w = NSPanel(contentRect: r.insetBy(dx: -pad, dy: -pad), styleMask: [.borderless, .nonactivatingPanel],
+                        backing: .buffered, defer: false)
+        w.isOpaque = false
+        w.backgroundColor = .clear
+        w.hasShadow = false
+        w.level = .popUpMenu
+        w.ignoresMouseEvents = true
+        w.sharingType = .none
+        w.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        let v = NSView()
+        v.wantsLayer = true
+        v.layer?.borderColor = NSColor.systemBlue.cgColor
+        v.layer?.borderWidth = 2
+        v.layer?.cornerRadius = 2
+        w.contentView = v
+        w.orderFrontRegardless()
+        return w
     }
 
     // MARK: The last area (Enter captures it again)
@@ -244,7 +300,7 @@ final class RegionCapture {
         guard let last = Self.lastArea,
               let f = frozen.first(where: { $0.screen.frame.contains(CGPoint(x: last.midX, y: last.midY)) }) else { NSSound.beep(); return }
         let r = last.intersection(f.screen.frame)
-        finish(save(r, from: f) ? remember(r) : nil)
+        take(r, from: f)
     }
 
     /// Esc: closes the overlay and goes back to the app you were in (starting from the menu bar panel
@@ -265,14 +321,25 @@ final class RegionCapture {
         return CGImageDestinationFinalize(dest)
     }
 
-    private func finish(_ result: URL?) {
-        guard completion != nil else { return }
+    /// Takes the frozen screen and crosshair away (once).
+    private func closeOverlays() {
+        guard !overlays.isEmpty else { return }
         antsTimer?.invalidate()
         antsTimer = nil
         overlays.forEach { $0.orderOut(nil) }
         overlays = []
         views = []
         NSCursor.pop()
+    }
+
+    private func finish(_ result: URL?) {
+        guard completion != nil else { return }
+        closeOverlays()
+        countdownTimer?.invalidate()
+        countdownTimer = nil
+        if outline != nil { CountdownHUD.hide() }
+        outline?.orderOut(nil)
+        outline = nil
         if result != nil && sound {
             NSSound(contentsOfFile: "/System/Library/Components/CoreAudio.component/Contents/SharedSupport/SystemSounds/system/Screen Capture.aif", byReference: true)?.play()
         }

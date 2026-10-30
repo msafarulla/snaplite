@@ -48,14 +48,15 @@ enum Capture {
 
     /// Runs /usr/sbin/screencapture; completion gets the new file, or nil if the user pressed Esc.
     /// `cursor` only works for full-screen captures (screencapture -C is non-interactive only).
+    /// `delay` (region only, SnapNow's picker): seconds between picking the area and capturing it.
     static func run(_ mode: CaptureMode, to destination: URL? = nil, cursor: Bool = false, windowShadow: Bool = false,
-                    sound: Bool = false, systemPicker: Bool = false, completion: @escaping (URL?) -> Void) {
+                    sound: Bool = false, delay: Int = 0, systemPicker: Bool = false, completion: @escaping (URL?) -> Void) {
         let url = destination ?? newCaptureURL()
         // SnapNow's own picker (frozen screen, crosshair, magnifier), as in Snagit. It needs Screen Recording
         // permission (the system picker below doesn't); without it, or if the frozen screen comes back blank,
         // the system picker takes over.
         if mode == .region && !systemPicker && CGPreflightScreenCaptureAccess() {
-            RegionCapture.start(to: url, sound: sound, completion: completion) {
+            RegionCapture.start(to: url, sound: sound, delay: delay, completion: completion) {
                 run(.region, to: url, cursor: cursor, windowShadow: windowShadow, sound: sound, systemPicker: true, completion: completion)
             }
             return
