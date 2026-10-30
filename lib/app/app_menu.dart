@@ -129,7 +129,7 @@ class AppMenuBar extends StatelessWidget {
               item('Save', () => ed('save'), cmd(LogicalKeyboardKey.keyS)),
               item('Save As…', () => ed('saveAs'), cmd(LogicalKeyboardKey.keyS, shift: true)),
               item('Save as Animated GIF…', () => ed('saveGif')),
-              item('Animate with Manim…', () => ed('manim')),
+              item('Open in Manim Studio…', () => ed('manim')),
             ],
           ]),
           if (editing)

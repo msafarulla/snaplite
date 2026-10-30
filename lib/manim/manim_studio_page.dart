@@ -24,6 +24,16 @@ class ManimStudioPage extends StatefulWidget {
   static Future<void> open(BuildContext context, {String? path}) =>
       Navigator.of(context).push(MaterialPageRoute(builder: (_) => ManimStudioPage(path: path)));
 
+  /// Opens `doc` (a capture made into a project, lib/manim/from_capture.dart) saved as `<name>.snapmanim`.
+  static Future<void> openDoc(BuildContext context, ManimDoc doc, String name) {
+    var p = '$projectsFolder/$name.snapmanim';
+    for (var n = 2; File(p).existsSync(); n++) {
+      p = '$projectsFolder/$name $n.snapmanim';
+    }
+    File(p).writeAsStringSync(doc.encode());
+    return open(context, path: p);
+  }
+
   /// File › Open Manim Project…
   static Future<void> pickAndOpen(BuildContext context) async {
     final r = await FilePicker.pickFiles(

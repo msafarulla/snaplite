@@ -188,15 +188,14 @@ no code needed.
 Projects save themselves as you work (`~/Pictures/SnapNow/Manim Projects/*.snapmanim`, images included);
 **File › Open Manim Project…** opens one again. Manim and, for math, LaTeX are installed separately (below).
 
-### Animate with Manim
+### Open in Manim Studio
 
-**File › Animate with Manim…** turns the capture into a [Manim](https://www.manim.community) scene: the
-screenshot as the backdrop and every annotation as a Manim object, animated in the order you added it, like
-the animated GIF: curved arrows and boxes draw on along their path, Fourier circles trace them when **Fourier
-drawing** is on, dashed and dotted lines keep their pattern (marching ones keep running), text writes itself,
-steps grow, highlights wipe in and spotlights dim the rest. Edit the Python right there, pick MP4
-(the default; Manim is made for video) or GIF and Preview (480p) or HD (1080p), and **Render**: the result lands in the Library like a recording. Blurred
-areas are baked into the backdrop, so the scene never contains what you blurred.
+Draw on a capture the usual way, then **File › Open in Manim Studio…**: the screenshot becomes the backdrop and
+every arrow, line, pen stroke, box, ellipse, highlight, text, callout and step you drew becomes a Manim Studio
+object, in the order you drew them, ready to animate (entrances, emphasis, motion, camera zoom). Curved arrows
+keep the path you drew; with **Fourier drawing** on, drawn paths enter by Fourier Draw. Blurred areas are baked
+into the backdrop, so the video never contains what you blurred. The project is saved like any other
+(`<capture name>.snapmanim`).
 
 SnapNow doesn't ship Manim (it's a few hundred MB of Python). Install it once, in Terminal:
 

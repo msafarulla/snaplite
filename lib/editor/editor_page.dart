@@ -18,7 +18,9 @@ import '../model/annotation.dart';
 import '../model/markup_file.dart';
 import '../platform/native.dart';
 import 'canvas_painter.dart';
-import 'manim_page.dart';
+import '../export/manim_scene.dart';
+import '../manim/from_capture.dart';
+import '../manim/manim_studio_page.dart';
 import 'properties_panel.dart';
 import 'quick_styles.dart';
 import 'snapping.dart';
@@ -347,12 +349,15 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     }
   }
 
-  /// File › Animate with Manim…: the capture as an editable Manim scene (lib/editor/manim_page.dart).
-  void _openManim() {
+  /// File › Open in Manim Studio…: the capture as the backdrop and everything drawn on it as Studio objects,
+  /// to animate there (lib/manim/from_capture.dart).
+  Future<void> _openManim() async {
     _endTextEdit();
     final s = _state;
     if (s == null) return;
-    Navigator.of(context).push(MaterialPageRoute(builder: (_) => ManimPage(state: s)));
+    final doc = ManimFromCapture.convert(s, await ManimScene.backdrop(s));
+    if (!mounted) return;
+    await ManimStudioPage.openDoc(context, doc, _gifName());
   }
 
   void _showCopied() {
