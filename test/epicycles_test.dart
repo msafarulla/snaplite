@@ -80,6 +80,6 @@ void main() {
   test('traced strokes appear slower so the circles can be seen', () {
     BuildUpGif.fourier = true;
     addTearDown(() => BuildUpGif.fourier = false);
-    expect(BuildUpGif.appearing(annotations.first), const Duration(milliseconds: 1800));
+    expect(BuildUpGif.appearing(annotations.first), BuildUpGif.fourierDraw);
   });
 }

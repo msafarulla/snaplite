@@ -12,10 +12,12 @@ import 'gif_encoder.dart';
 /// The "build-up" GIF: the original capture, then each annotation appearing in the order it was added,
 /// then the finished picture, looping. Rendering uses the editor's own painter; encoding is pure Dart.
 class BuildUpGif {
-  static const fps = 20;
-  static const openingHold = Duration(milliseconds: 1000);
-  static const pauseAfterEach = Duration(milliseconds: 400);
-  static const finalHold = Duration(milliseconds: 2500);
+  /// 25 frames a second (40 ms, a delay GIF stores exactly) and unhurried appearances: smooth and easy to follow.
+  static const fps = 25;
+  static const openingHold = Duration(milliseconds: 1200);
+  static const pauseAfterEach = Duration(milliseconds: 600);
+  static const finalHold = Duration(milliseconds: 3000);
+  static const lineDraw = Duration(milliseconds: 1200), fourierDraw = Duration(milliseconds: 2800);
   static const maxSide = 2400.0;
   /// GIF pixels per screen point: sharper than point size, but not the capture's full 2× (too big).
   static const pointScale = 1.5;
@@ -25,10 +27,10 @@ class BuildUpGif {
 
   /// How long an annotation takes to appear: lines and outlines draw on a bit slower than pops and fades,
   /// and slower still while Fourier circles trace them, so the circles can be seen.
-  static Duration appearing(Annotation a) => fourier && Epicycles.of(a) != null ? const Duration(milliseconds: 1800) : switch (a.shape) {
-        ArrowShape() || LineShape() || RectShape() || EllipseShape() || PenShape() => const Duration(milliseconds: 600),
-        HighlightShape() => const Duration(milliseconds: 500),
-        _ => const Duration(milliseconds: 400),
+  static Duration appearing(Annotation a) => fourier && Epicycles.of(a) != null ? fourierDraw : switch (a.shape) {
+        ArrowShape() || LineShape() || RectShape() || EllipseShape() || PenShape() => lineDraw,
+        HighlightShape() => const Duration(milliseconds: 900),
+        _ => const Duration(milliseconds: 700),
       };
 
   /// Output pixels per image pixel: [pointScale] × point size, never above the capture's own pixels, at most

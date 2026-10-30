@@ -143,9 +143,10 @@ void main() {
     final white = rgba(255, 255, 255);
     expect(frames!.first.$1.every((p) => p == white), isTrue, reason: 'starts on the original (blank) capture');
     expect(frames.first.$2, BuildUpGif.openingHold);
-    final perShape = 600 * BuildUpGif.fps ~/ 1000;
-    expect(frames.length, 1 + 2 * perShape, reason: 'every frame of both appearances changes something');
-    expect(frames.last.$2, BuildUpGif.finalHold + const Duration(milliseconds: 600 ~/ (600 * BuildUpGif.fps ~/ 1000)));
+    final ms = BuildUpGif.lineDraw.inMilliseconds, perShape = ms * BuildUpGif.fps ~/ 1000;
+    expect(frames.length, inInclusiveRange(2 * perShape - 1, 1 + 2 * perShape),
+        reason: 'a frame per step (a line\'s first sliver can be too thin to change a pixel, so it merges)');
+    expect(frames.last.$2, BuildUpGif.finalHold + Duration(milliseconds: ms ~/ perShape));
   });
 
   testWidgets('⇧⌘C copies the build-up GIF, ⌘C still copies the still image', (tester) async {
