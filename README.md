@@ -36,7 +36,7 @@ Click the menu bar icon for the capture panel, or right-click it for the full me
 <p>
   <img src="docs/screenshots/capture-panel.png" alt="Capture panel: Area, Window, Screen, Video and Text modes, a shutter button and options" width="430">
   &nbsp;
-  <img src="docs/screenshots/menu.png" alt="Menu bar menu with every capture mode and its shortcut" width="260">
+  <img src="docs/screenshots/menu.png" alt="Menu bar menu with every capture mode and its shortcut, Scheduled Screenshots, Library and settings" width="260">
 </p>
 
 | | Default shortcut |
