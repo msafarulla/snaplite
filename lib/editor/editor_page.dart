@@ -60,7 +60,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
   List<Offset>? _trail; // the path dragged so far, when the Arrow / Line tool follows the drag
 
   /// Curve: new arrows and lines follow the path you drag instead of going straight (remembered).
-  bool _followDrag = false;
+  bool _followDrag = true; // on unless turned off: a curved drag makes a curve
   int? _dragId;
   int? _resizeHandle; // null => move
   Offset _lastPoint = Offset.zero;
@@ -577,7 +577,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     if (_tool == Tool.step) { _addStep(_clamp(p)); return; }
     if (_tool == Tool.pen) { _penPoints = [_clamp(p)]; return; }
     _createStart = _clamp(p); _createCurrent = _createStart;
-    _trail = _followDrag && (_tool == Tool.arrow || _tool == Tool.line) ? [_createStart!] : null;
+    _trail = (_followDrag || BuildUpGif.fourier) && (_tool == Tool.arrow || _tool == Tool.line) ? [_createStart!] : null;
   }
 
   void _move(Offset p) {
@@ -635,7 +635,8 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     if (_penPoints != null) {
       final pts = _penPoints!; _penPoints = null;
       if (pts.length > 1) {
-        _add(Annotation(id: _nextId++, scale: _density, shape: PenShape(pts), color: _color, size: _size, arrowStyle: _styleFor(StyleKind.shape)));
+        final a = Annotation(id: _nextId++, scale: _density, shape: PenShape(pts), color: _color, size: _size, arrowStyle: _styleFor(StyleKind.shape));
+        _add(BuildUpGif.fourier ? Epicycles.fourierized(a) : a); // Fourier drawing keeps the curve the circles trace
       }
       return;
     }
@@ -680,6 +681,8 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     final big = rect.width > 3 && rect.height > 3;
     Shape? shape;
     switch (_tool) {
+      case Tool.arrow || Tool.line when BuildUpGif.fourier && _fourierShape(a, b) != null:
+        shape = _fourierShape(a, b);
       case Tool.arrow || Tool.line:
         final f = _follow(a, b);
         if (f != null) {
@@ -709,6 +712,22 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
       _add(Annotation(id: _nextId++, scale: _density, shape: shape, color: _color, size: _size,
           arrowStyle: kind == null ? ArrowStyle.arrow : _styleFor(kind)));
     }
+  }
+
+  /// Fourier drawing: the arrow or line as the smooth Fourier curve its circles trace through the drag
+  /// (ends exactly where you pressed and let go). Null for a drag too short to trace.
+  Shape? _fourierShape(Offset a, Offset b) {
+    final raw = _rawStroke(_tool, a, b, _trail);
+    return raw == null ? null : Epicycles.fourierized(Annotation(id: -1, shape: raw)).shape;
+  }
+
+  /// The drag exactly as made, as an arrow or line through every point of `trail`.
+  static Shape? _rawStroke(Tool tool, Offset a, Offset b, List<Offset>? trail) {
+    if ((b - a).distance < 4) return null;
+    final mid = trail == null || trail.length < 3
+        ? const <Offset>[]
+        : [for (final q in trail.skip(1)) if ((q - a).distance > 1 && (q - b).distance > 1) q];
+    return tool == Tool.arrow ? ArrowShape(a, b, points: mid) : LineShape(a, b, points: mid);
   }
 
   void _add(Annotation a) {
@@ -1767,6 +1786,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
                         march: _march,
                         canvasResize: _canvasDrag?.$2,
                         fourier: BuildUpGif.fourier,
+                        trail: _trail == null || _createCurrent == null ? null : [..._trail!, _createCurrent!],
                         guides: _guides,
                         boundsOfSelection: _textEdit != null || selected == null || selected!.rect != null ? null : _bounds(selected!),
                       ),
@@ -1841,14 +1861,24 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
             return sum / (to - from + 1).toDouble();
           }(),
     ];
+    // Nearly straight stays straight
+    final chord = pts.last - pts.first, chordLen = chord.distance;
+    var bulge = 0.0;
+    for (final q in pts) {
+      final v = q - pts.first;
+      bulge = math.max(bulge, chordLen == 0 ? v.distance : (chord.dx * v.dy - chord.dy * v.dx).abs() / chordLen);
+    }
+    if (bulge < math.max(3 / _viewScale, chordLen * 0.02)) return null;
     final arc = _arc(pts);
     if (arc != null) return arc;
-    var eps = 10 / _viewScale;
+    // Fine enough that a curve you drew stays a curve (a bend of 2 screen points is kept), coarse enough to
+    // stay smooth: at most 12 points
+    var eps = 2 / _viewScale;
     List<Offset> kept;
     do {
       kept = _simplify(pts, eps);
-      eps *= 1.4;
-    } while (kept.length > 8);
+      eps *= 1.3;
+    } while (kept.length > 12);
     return (from: start, to: end, points: kept.sublist(1, kept.length - 1), tangents: const <Offset?>[]);
   }
 
@@ -1858,26 +1888,21 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
   ({Offset from, Offset to, List<Offset> points, List<Offset?> tangents})? _arc(List<Offset> pts) {
     final n = pts.length;
     if (n < 5) return null;
-    // Solve x² + y² + Dx + Ey + F = 0 by least squares (normal equations, 3×3)
-    var sxx = 0.0, sxy = 0.0, syy = 0.0, sx = 0.0, sy = 0.0, sxz = 0.0, syz = 0.0, sz = 0.0;
-    final o = pts.first; // work relative to the start, for precision
-    for (final q in pts) {
-      final x = q.dx - o.dx, y = q.dy - o.dy, z = x * x + y * y;
-      sxx += x * x; sxy += x * y; syy += y * y; sx += x; sy += y; sxz += x * z; syz += y * z; sz += z;
+    // A circle through the drag's own ends (so they stay exactly where you pressed and let go): its centre is
+    // on their perpendicular bisector; each point picks a centre there, and the median wins
+    final a = pts.first, b = pts.last, mid = (a + b) / 2, half = (b - a).distance / 2;
+    if (half < 1e-6) return null;
+    final normal = Offset(-(b - a).dy, (b - a).dx) / (2 * half);
+    final picks = <double>[];
+    for (final q in pts.sublist(1, n - 1)) {
+      final v = q - mid, along = v.dx * normal.dx + v.dy * normal.dy;
+      if (along.abs() < 1e-6) continue;
+      picks.add((v.distanceSquared - half * half) / (2 * along));
     }
-    final m = [[sxx, sxy, sx], [sxy, syy, sy], [sx, sy, n.toDouble()]];
-    final rhs = [-sxz, -syz, -sz];
-    double det3(List<List<double>> a) =>
-        a[0][0] * (a[1][1] * a[2][2] - a[1][2] * a[2][1]) - a[0][1] * (a[1][0] * a[2][2] - a[1][2] * a[2][0]) +
-        a[0][2] * (a[1][0] * a[2][1] - a[1][1] * a[2][0]);
-    final d = det3(m);
-    if (d.abs() < 1e-9) return null;
-    List<List<double>> col(int c) => [for (var r = 0; r < 3; r++) [for (var j = 0; j < 3; j++) j == c ? rhs[r] : m[r][j]]];
-    final dd = det3(col(0)) / d, ee = det3(col(1)) / d, ff = det3(col(2)) / d;
-    final c = o + Offset(-dd / 2, -ee / 2);
-    final r2 = dd * dd / 4 + ee * ee / 4 - ff;
-    if (r2 <= 0) return null;
-    final r = math.sqrt(r2);
+    if (picks.length < 3) return null;
+    picks.sort();
+    final c = mid + normal * picks[picks.length ~/ 2];
+    final r = (a - c).distance;
     var err = 0.0;
     for (final q in pts) {
       final e = (q - c).distance - r;
@@ -1902,7 +1927,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
       for (var i = 0; i <= pieces; i++)
         Offset(-math.sin(a0 + step * i), math.cos(a0 + step * i)) * (len * dir),
     ];
-    return (from: on.first, to: on.last, points: on.sublist(1, on.length - 1), tangents: tg);
+    return (from: a, to: b, points: on.sublist(1, on.length - 1), tangents: tg);
   }
 
   static List<Offset> _simplify(List<Offset> pts, double eps) {
@@ -2277,11 +2302,12 @@ class _PreviewPainter extends CustomPainter {
   final Rect? boundsOfSelection;
   final List<Guide> guides;
   final bool fourier; // Fourier drawing: spinning circles trace the stroke as it's drawn
+  final List<Offset>? trail; // the drag so far, every point (Fourier drawing traces it)
 
   _PreviewPainter({required this.base, required this.origin, required this.tool, required this.color, required this.size,
       required this.scale, required this.style, this.createStart, this.createCurrent, this.penPoints, this.follow,
       this.canvasChrome = false, this.ants, required this.march, this.canvasResize, this.boundsOfSelection, this.guides = const [],
-      this.fourier = false})
+      this.fourier = false, this.trail})
       : super(repaint: Listenable.merge([ants, march]));
 
   static const _accent = Color(0xFF2F7CF6);
@@ -2302,14 +2328,18 @@ class _PreviewPainter extends CustomPainter {
     Annotation ann(Shape s) => Annotation(id: -1, shape: s, color: color, size: this.size, arrowStyle: style, scale: base.state.density);
     // The stroke being drawn; with Fourier drawing on, its circles follow the pointer in real time
     void live(Annotation a) {
-      CanvasPainter.drawAnnotation(canvas, a);
-      if (fourier) Epicycles.of(a)?.paint(canvas, 1, color, scale);
+      if (!fourier) return CanvasPainter.drawAnnotation(canvas, a);
+      CanvasPainter.drawAnnotation(canvas, Epicycles.fourierized(a)); // what you'll get: the curve the circles trace
+      Epicycles.of(a)?.paint(canvas, 1, color, scale);
     }
     if (penPoints != null && penPoints!.length > 1) {
       live(ann(PenShape(penPoints!)));
     } else if (createStart != null && createCurrent != null) {
       final a = createStart!, b = createCurrent!, r = Rect.fromPoints(a, b);
       switch (tool) {
+        case Tool.arrow || Tool.line when fourier:
+          final raw = EditorPageState._rawStroke(tool, a, b, trail);
+          if (raw != null) live(ann(raw));
         case Tool.arrow:
           final f = follow;
           live(ann(f == null ? ArrowShape(a, b) : ArrowShape(f.from, f.to, points: f.points, tangents: f.tangents)));

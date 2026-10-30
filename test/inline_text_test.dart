@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -533,6 +534,23 @@ void main() {
     await g.up();
     await tester.pump();
     expect(painter().progress, isNull, reason: 'already drawn live: no replay on release');
+    final curve = editor.selected!;
+    expect(curve.curve!.length, 13, reason: 'kept as the Fourier curve: a dozen stretches with its own tangents');
+    final top = curve.curve!.map((p) => p.dy).reduce(math.min);
+    expect(curve.curve!.first.dy - top, greaterThan(100), reason: 'a curve, rising with the drag');
+
+    // A straight drag stays exactly straight
+    await tester.tap(find.text('Arrow').first);
+    await tester.pump();
+    final s2 = onCanvas(tester, 0.2, 0.85);
+    final g2 = await tester.startGesture(s2);
+    for (var i = 1; i <= 12; i++) { await g2.moveTo(s2 + Offset(30.0 * i, 0)); await tester.pump(); }
+    await g2.up();
+    await tester.pump();
+    final straight = editor.selected!.curve!;
+    for (final p in straight) {
+      expect((p.dy - straight.first.dy).abs(), lessThan(0.5), reason: 'no wobble on a straight line');
+    }
 
     expect(find.text('Play'), findsOneWidget);
     await tester.tap(find.text('Play'));
@@ -566,7 +584,7 @@ void main() {
     final arc = editor.selected!;
     final pts = arc.curve!;
     expect(pts.length, greaterThan(2), reason: 'bends follow the drag');
-    expect(pts.length, lessThanOrEqualTo(8), reason: 'thinned to a few smooth bends');
+    expect(pts.length, lessThanOrEqualTo(12), reason: 'thinned to a few smooth bends');
     final top = pts.map((p) => p.dy).reduce((a, b) => a < b ? a : b);
     expect(pts.first.dy - top, greaterThan(100), reason: 'the curve rises with the drag (image coords)');
 

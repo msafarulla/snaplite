@@ -15,7 +15,7 @@ class Epicycles {
   final bool closed;
   Epicycles._(this.center, this.terms, this.closed);
 
-  static const _samples = 128, _maxCircles = 60;
+  static const _samples = 128, _maxCircles = 30;
   static final _cache = Expando<Epicycles>();
 
   static bool fits(Annotation a) =>
@@ -54,6 +54,50 @@ class Epicycles {
     final rest = terms.where((t) => t.freq != 0).toList()
       ..sort((x, y) => (y.re * y.re + y.im * y.im).compareTo(x.re * x.re + x.im * x.im));
     return Epicycles._(Offset(dc.re, dc.im), rest.take(_maxCircles).toList(), closed);
+  }
+
+  /// The point the circles trace at `along` (0…1 of the stroke), and its rate of change per unit of `along`.
+  ({Offset at, Offset d}) _trace(double along) {
+    final s = closed ? along : along / 2, ds = closed ? 1.0 : 0.5;
+    var p = center, d = Offset.zero;
+    for (final t in terms) {
+      final w = 2 * math.pi * t.freq, c = math.cos(w * s), sn = math.sin(w * s);
+      p += Offset(t.re * c - t.im * sn, t.re * sn + t.im * c);
+      d += Offset(-t.re * sn - t.im * c, t.re * c - t.im * sn) * (w * ds);
+    }
+    return (at: p, d: d);
+  }
+
+  /// `a` redrawn as the curve its circles trace: a smooth Fourier curve (Fourier drawing turns every new
+  /// arrow, line and pen stroke into one). An open stroke keeps its ends exactly where they were drawn.
+  static Annotation fourierized(Annotation a) {
+    final e = of(a);
+    if (e == null || a.shape is RectShape || a.shape is EllipseShape) return a;
+    final metric = CanvasPainter.outlinePath(a).computeMetrics().first;
+    final start = metric.getTangentForOffset(0)!.position, end = metric.getTangentForOffset(metric.length)!.position;
+    // Ends pinned: the small gap at each end is shared out linearly along the curve
+    final gap0 = e.closed ? Offset.zero : start - e._trace(0).at, gap1 = e.closed ? Offset.zero : end - e._trace(1).at;
+    ({Offset at, Offset d}) point(double u) {
+      final t = e._trace(u);
+      return (at: t.at + gap0 * (1 - u) + gap1 * u, d: t.d + (gap1 - gap0));
+    }
+
+    switch (a.shape) {
+      case PenShape():
+        const n = 160;
+        return a.copyWith(shape: PenShape([for (var i = 0; i <= n; i++) point(e.closed ? (i % n) / n : i / n).at]));
+      case ArrowShape() || LineShape():
+        // A dozen points with the curve's own tangents (|tangent| = 3 × the Bézier handle = rate × spacing)
+        const k = 12;
+        final pts = [for (var i = 0; i <= k; i++) point(i / k)];
+        final from = pts.first.at, to = pts.last.at, mid = [for (final q in pts.sublist(1, k)) q.at];
+        final tangents = <Offset?>[for (final q in pts) q.d / k.toDouble()];
+        return a.copyWith(shape: a.shape is ArrowShape
+            ? ArrowShape(from, to, points: mid, tangents: tangents)
+            : LineShape(from, to, points: mid, tangents: tangents));
+      default:
+        return a;
+    }
   }
 
   /// The circles' centres and the tip at `along` (0…1 of the stroke).
