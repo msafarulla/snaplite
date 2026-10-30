@@ -998,7 +998,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
   Future<void> share() async {
     _endTextEdit();
     final s = _state;
-    // The share menu opens under the canvas's Share button (also File › Share…)
+    // The share menu opens under the toolbar's Share button (also File › Share…)
     final box = (_shareKey.currentContext ?? context).findRenderObject() as RenderBox?;
     if (s == null || box == null) return;
     final String path;
@@ -1799,38 +1799,11 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
             if (_formatBarTarget case final a?) _formatBar(a, origin, scale, Size(constraints.maxWidth, constraints.maxHeight)),
             if (_thicknessTarget case final a?) _thicknessSlider(a, origin, scale, Size(constraints.maxWidth, constraints.maxHeight)),
             if (_colorBarTarget case final a?) _colorBar(a, origin, scale, Size(constraints.maxWidth, constraints.maxHeight)),
-            if (Platform.isMacOS) Positioned(right: 12, top: 12, child: _sharePill()),
             Positioned(right: 12, bottom: 12, child: _zoomPill()),
           ]),
         ),
       ));
     });
-  }
-
-  /// Share in the canvas's top corner, next to the picture it shares; the share menu opens under it.
-  Widget _sharePill() {
-    final scheme = Theme.of(context).colorScheme;
-    return Material(
-      key: _shareKey,
-      color: scheme.surfaceContainerHigh.withValues(alpha: 0.92),
-      elevation: 2,
-      shape: const StadiumBorder(),
-      child: InkWell(
-        onTap: share,
-        customBorder: const StadiumBorder(),
-        child: Tooltip(
-          message: 'Share the picture (Messages, Mail, AirDrop…)',
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
-              Icon(Icons.ios_share, size: 16, color: scheme.onSurface),
-              const SizedBox(width: 6),
-              Text('Share', style: TextStyle(fontSize: 12, color: scheme.onSurface)),
-            ]),
-          ),
-        ),
-      ),
-    );
   }
 
   /// − / percent / + in the corner; clicking the percent switches between Fit and 100%.
@@ -2215,9 +2188,10 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
             ]),
           ),
         ),
-        // The window is for annotating: on macOS Save, Copy, Pin and the rest live in the menu bar (Share is on the canvas)
+        // The window is for annotating: on macOS Save, Copy, Pin and the rest live in the menu bar
         _ToolButton(icon: Icons.undo, label: 'Undo', onTap: _undo.isEmpty ? null : _undoAction),
         _ToolButton(icon: Icons.redo, label: 'Redo', onTap: _redo.isEmpty ? null : _redoAction),
+        if (Platform.isMacOS) KeyedSubtree(key: _shareKey, child: _ToolButton(icon: Icons.ios_share, label: 'Share', onTap: share)),
         if (!Platform.isMacOS) ...[
           const SizedBox(width: 6),
           _ToolButton(icon: Icons.content_copy, label: 'Copy', onTap: _copyImage),

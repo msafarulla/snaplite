@@ -4,10 +4,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:snaplite_flutter/editor/editor_page.dart';
 
-/// The Share button sits on the canvas: clicking it opens the share menu under it with the finished picture,
+/// The Share button sits in the toolbar next to Undo/Redo: clicking it opens the share menu under it with the finished picture,
 /// and doesn't draw on the canvas underneath.
 void main() {
-  testWidgets('Share on the canvas opens the share menu under the button, without drawing', (tester) async {
+  testWidgets('Share in the toolbar opens the share menu under the button, without drawing', (tester) async {
     final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     final shares = <Map>[];
     for (final ch in ['window_manager', 'pasteboard']) {
@@ -42,7 +42,7 @@ void main() {
 
     final button = find.text('Share');
     expect(button, findsOneWidget);
-    final pill = tester.getRect(find.ancestor(of: button, matching: find.byType(Material)).first);
+    final pill = tester.getRect(find.ancestor(of: button, matching: find.byType(KeyedSubtree)).first);
     await tester.runAsync(() async {
       await tester.tap(button);
       for (var i = 0; i < 50 && shares.isEmpty; i++) {
