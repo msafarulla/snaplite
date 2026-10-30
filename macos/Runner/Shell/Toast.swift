@@ -127,14 +127,14 @@ private final class HoverView: NSView {
     override func mouseExited(with event: NSEvent) { onHover?(false) }
 }
 
-/// The delay timer's countdown, big in the middle of the screen with the mouse: you can see how long is left
-/// while you open a menu or hover something. Click-through, and kept out of captures.
+/// The delay timer's countdown, big in the middle of the picked area (or of the screen with the mouse): you can
+/// see how long is left while you open a menu or hover something. Click-through, and kept out of captures.
 enum CountdownHUD {
     private static var panel: NSPanel?
     private static var number: NSTextField?
 
-    static func show(_ seconds: Int) {
-        if panel == nil { build() }
+    static func show(_ seconds: Int, centeredOn area: CGRect? = nil) {
+        if panel == nil { build(area) }
         guard let panel, let number else { return }
         number.stringValue = "\(seconds)"
         panel.orderFrontRegardless()
@@ -153,7 +153,7 @@ enum CountdownHUD {
         number = nil
     }
 
-    private static func build() {
+    private static func build(_ area: CGRect?) {
         let side: CGFloat = 150
         let label = NSTextField(labelWithString: "")
         label.font = .monospacedDigitSystemFont(ofSize: 84, weight: .bold)
@@ -179,8 +179,8 @@ enum CountdownHUD {
         ])
 
         let mouse = NSEvent.mouseLocation
-        let screen = (NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main ?? NSScreen.screens[0]).frame
-        let p = NSPanel(contentRect: NSRect(x: screen.midX - side / 2, y: screen.midY - side / 2, width: side, height: side),
+        let centre = area ?? (NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main ?? NSScreen.screens[0]).frame
+        let p = NSPanel(contentRect: NSRect(x: centre.midX - side / 2, y: centre.midY - side / 2, width: side, height: side),
                         styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         p.isOpaque = false
         p.backgroundColor = .clear

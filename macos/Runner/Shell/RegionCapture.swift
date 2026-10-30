@@ -234,7 +234,7 @@ final class RegionCapture {
         closeOverlays()
         outline = Self.showOutline(r)
         var remaining = delay
-        CountdownHUD.show(remaining)
+        CountdownHUD.show(remaining, centeredOn: r)
         countdownTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] timer in
             guard let self else { timer.invalidate(); return }
             remaining -= 1
