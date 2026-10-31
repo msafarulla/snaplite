@@ -1213,6 +1213,62 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     setState(() { _selection = ann.id; _group.clear(); _tool = Tool.select; });
   }
 
+  /// A grid of the logos bundled under `assets/logos/`; the chosen one drops onto the canvas as a movable,
+  /// resizable overlay (the same as Add Image). Drop more PNGs into that folder and rebuild to grow the set.
+  Future<void> _showLogoPicker() async {
+    const exts = ['.png', '.jpg', '.jpeg', '.webp'];
+    final manifest = await AssetManifest.loadFromAssetBundle(rootBundle);
+    final logos = manifest.listAssets()
+        .where((a) => a.startsWith('assets/logos/') && exts.any((e) => a.toLowerCase().endsWith(e)))
+        .toList()
+      ..sort();
+    if (!mounted) return;
+    final picked = await showDialog<String>(
+      context: context,
+      builder: (ctx) {
+        final scheme = Theme.of(ctx).colorScheme;
+        return AlertDialog(
+          title: const Text('Insert Logo'),
+          content: SizedBox(
+            width: 480,
+            height: 380,
+            child: logos.isEmpty
+                ? Center(
+                    child: Text('No logos bundled yet.\nDrop logo PNGs into assets/logos/ and rebuild.',
+                        textAlign: TextAlign.center, style: TextStyle(color: scheme.onSurfaceVariant)))
+                : GridView.builder(
+                    gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                        maxCrossAxisExtent: 120, mainAxisSpacing: 10, crossAxisSpacing: 10, childAspectRatio: 1),
+                    itemCount: logos.length,
+                    itemBuilder: (_, i) {
+                      final a = logos[i];
+                      final name = a.split('/').last.replaceFirst(RegExp(r'\.[^.]+$'), '');
+                      return Tooltip(
+                        message: name,
+                        waitDuration: const Duration(milliseconds: 400),
+                        child: InkWell(
+                          onTap: () => Navigator.pop(ctx, a),
+                          borderRadius: BorderRadius.circular(8),
+                          child: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                                color: scheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(8)),
+                            child: Image.asset(a, fit: BoxFit.contain),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+          actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel'))],
+        );
+      },
+    );
+    if (picked == null) return;
+    final data = await rootBundle.load(picked);
+    await addOverlayBytes(data.buffer.asUint8List());
+  }
+
   /// Grows the base canvas to fit every image overlay, shifting content if it spills past top/left.
   Future<CanvasState> _grownToFit(CanvasState s) async {
     var union = Rect.fromLTWH(0, 0, s.image.width.toDouble(), s.image.height.toDouble());
@@ -1504,18 +1560,27 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
 
   Future<void> _showCanvasMenu(Offset globalPos) async {
     final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+    // Same compact look as the toolbar's "More ▾" menus: icon + 13pt label, so nothing is clipped.
+    PopupMenuItem<String> row(String value, IconData icon, String label) => PopupMenuItem(
+          value: value,
+          height: 32,
+          child: Row(children: [
+            Icon(icon, size: 17), const SizedBox(width: 10),
+            Text(label, style: const TextStyle(fontSize: 13)),
+          ]),
+        );
     final sel = await showMenu<String>(
       context: context,
       position: RelativeRect.fromRect(globalPos & const Size(1, 1), Offset.zero & overlay.size),
-      items: const [
-        PopupMenuItem(value: 'flipH', child: Text('Flip Horizontal')),
-        PopupMenuItem(value: 'flipV', child: Text('Flip Vertically')),
-        PopupMenuDivider(),
-        PopupMenuItem(value: 'trim', child: Text('Trim')),
-        PopupMenuItem(value: 'cropCanvas', child: Text('Crop to Canvas')),
-        PopupMenuItem(value: 'resize', child: Text('Resize Canvas…')),
-        PopupMenuItem(value: 'color', child: Text('Change Canvas Colour…')),
-        PopupMenuItem(value: 'flatten', child: Text('Flatten All')),
+      items: [
+        row('flipH', Icons.swap_horiz, 'Flip Horizontal'),
+        row('flipV', Icons.swap_vert, 'Flip Vertically'),
+        const PopupMenuDivider(height: 8),
+        row('trim', Icons.crop_free, 'Trim'),
+        row('cropCanvas', Icons.crop, 'Crop to Canvas'),
+        row('resize', Icons.aspect_ratio, 'Resize Canvas…'),
+        row('color', Icons.format_color_fill, 'Change Canvas Colour…'),
+        row('flatten', Icons.layers_clear, 'Flatten All'),
       ],
     );
     switch (sel) {
@@ -2407,56 +2472,74 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
   };
 
   Widget _toolbar() {
-    final shown = [for (final t in _toolOrder) if (_visibleTools.contains(t)) t];
-    final hidden = [for (final t in _toolOrder) if (!_visibleTools.contains(t)) t];
+    // Every tool can appear: the preferred ones (Settings visibility) come first, then the rest. The toolbar
+    // fits as many as the width allows and only the overflow goes into "More" — so a wider window shows more
+    // tools, not a half-empty bar with a needless More button.
     final barTool = _tool == Tool.ellipse ? Tool.box : _tool; // both are the Shape button
-    final moreActive = hidden.contains(barTool);
+    // Everything that can live on the bar, in priority order: preferred tools, the rest, then the actions.
+    // The bar fits as many as the width allows; only the leftover goes into "More", which is dropped entirely
+    // when nothing overflows. (On macOS, saving/opening/GIF live in the menu bar, so only Add Image + Logo.)
+    final items = <(String, IconData, String)>[
+      for (final t in _toolOrder) if (_visibleTools.contains(t)) (t.name, _toolInfo[t]!.$1, _toolInfo[t]!.$2),
+      for (final t in _toolOrder) if (!_visibleTools.contains(t)) (t.name, _toolInfo[t]!.$1, _toolInfo[t]!.$2),
+      ('overlay', Icons.add_photo_alternate_outlined, 'Add Image…'),
+      ('logo', Icons.business_outlined, 'Insert Logo…'),
+      if (!Platform.isMacOS) ...[
+        ('open', Icons.folder_open_outlined, 'Open Image…'),
+        ('flatten', Icons.layers_clear_outlined, 'Flatten All'),
+        ('export', Icons.ios_share, 'Save As…'),
+        ('gif', Icons.gif_box_outlined, 'Save as Animated GIF…'),
+        ('copyGif', Icons.gif_outlined, 'Copy as Animated GIF  ⇧⌘C'),
+      ],
+    ];
+    void run(String v) {
+      final t = Tool.values.where((t) => t.name == v).firstOrNull;
+      if (t != null) return _setTool(t == Tool.box ? _shapeKind.tool : t);
+      switch (v) {
+        case 'open': openImageDialog();
+        case 'overlay': _addOverlay();
+        case 'logo': _showLogoPicker();
+        case 'flatten': _flattenInPlace();
+        case 'export': saveAs();
+        case 'gif': saveAnimatedGif();
+        case 'copyGif': copyAnimatedGif();
+        case 'copySticker': copySticker();
+        case 'copyStillSticker': copyStillSticker();
+        case 'settings': Native.shell('settings');
+      }
+    }
     return Container(
       height: 58,
       padding: const EdgeInsets.symmetric(horizontal: 8),
       child: Row(children: [
         Expanded(
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(children: [
-              for (final t in shown)
-                _ToolButton(icon: _toolInfo[t]!.$1, label: _toolInfo[t]!.$2, active: barTool == t,
-                    onTap: () => _setTool(t == Tool.box ? _shapeKind.tool : t)),
-              _MoreButton(
-                active: moreActive,
-                label: moreActive ? _toolInfo[barTool]!.$2 : 'More',
-                icon: moreActive ? _toolInfo[barTool]!.$1 : Icons.expand_more,
-                items: [
-                  for (final t in hidden) (t.name, _toolInfo[t]!.$1, _toolInfo[t]!.$2),
-                  if (hidden.isNotEmpty) null,
-                  ('overlay', Icons.add_photo_alternate_outlined, 'Add Image…'),
-                  // On macOS saving, copying, sharing and the rest are in the menu bar; elsewhere they're here
-                  if (!Platform.isMacOS) ...[
-                    ('open', Icons.folder_open_outlined, 'Open Image…'),
-                    ('flatten', Icons.layers_clear_outlined, 'Flatten All'),
-                    ('export', Icons.ios_share, 'Save As…'),
-                    ('gif', Icons.gif_box_outlined, 'Save as Animated GIF…'),
-                    ('copyGif', Icons.gif_outlined, 'Copy as Animated GIF  ⇧⌘C'),
-                  ],
-                ],
-                onSelected: (v) {
-                  final t = Tool.values.where((t) => t.name == v).firstOrNull;
-                  if (t != null) return _setTool(t == Tool.box ? _shapeKind.tool : t);
-                  switch (v) {
-                    case 'open': openImageDialog();
-                    case 'overlay': _addOverlay();
-                    case 'flatten': _flattenInPlace();
-                    case 'export': saveAs();
-                    case 'gif': saveAnimatedGif();
-                    case 'copyGif': copyAnimatedGif();
-                    case 'copySticker': copySticker();
-                    case 'copyStillSticker': copyStillSticker();
-                    case 'settings': Native.shell('settings');
-                  }
-                },
-              ),
-            ]),
-          ),
+          child: LayoutBuilder(builder: (context, c) {
+            const toolW = 62.0, moreW = 66.0; // per-button footprint; More only when something overflows
+            final int n; // how many items show as buttons
+            if (items.length * toolW <= c.maxWidth) {
+              n = items.length; // everything fits: no More
+            } else {
+              n = ((c.maxWidth - moreW) / toolW).floor().clamp(0, items.length); // leave room for More
+            }
+            final shown = items.sublist(0, n);
+            final hidden = items.sublist(n);
+            final moreActive = hidden.any((i) => i.$1 == barTool.name);
+            return SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(children: [
+                for (final i in shown)
+                  _ToolButton(icon: i.$2, label: i.$3, active: i.$1 == barTool.name, onTap: () => run(i.$1)),
+                if (hidden.isNotEmpty)
+                  _MoreButton(
+                    active: moreActive,
+                    label: moreActive ? _toolInfo[barTool]!.$2 : 'More',
+                    icon: moreActive ? _toolInfo[barTool]!.$1 : Icons.expand_more,
+                    items: hidden,
+                    onSelected: run,
+                  ),
+              ]),
+            );
+          }),
         ),
         // The window is for annotating: on macOS Save, Copy, Pin and the rest live in the menu bar
         _ToolButton(icon: Icons.undo, label: 'Undo', onTap: _undo.isEmpty ? null : _undoAction),

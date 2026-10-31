@@ -43,3 +43,7 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Bundled logo images are trademarked brand assets, kept local (not redistributed via the repo)
+assets/logos/*
+!assets/logos/README.md
