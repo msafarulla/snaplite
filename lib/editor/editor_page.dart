@@ -1121,7 +1121,11 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     final String path;
     try {
       final dir = Directory('${Directory.systemTemp.path}/SnapNow Share')..createSync(recursive: true);
-      if (BuildUpGif.marches(s)) {
+      final preview = _gifPreview; // context-aware: share the animated GIF you're looking at, not the still
+      if (preview != null) {
+        path = '${dir.path}/${_gifName()}.gif';
+        await File(path).writeAsBytes(preview, flush: true);
+      } else if (BuildUpGif.marches(s)) {
         path = '${dir.path}/${_gifName()}.gif';
         await File(path).writeAsBytes(await BuildUpGif.renderMarching(s), flush: true);
       } else {
@@ -2051,7 +2055,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
                   shape: const StadiumBorder(),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                    child: Text('Copied as animated GIF: paste it anywhere  ·  click or Esc to close',
+                    child: Text('Copied as animated GIF: paste it anywhere, or Share (top-right) to AirDrop it  ·  Esc to close',
                         style: TextStyle(fontSize: 12, color: scheme.onSurface)),
                   ),
                 ),
