@@ -177,9 +177,17 @@ class Epicycles {
       ..strokeWidth = hair * 3
       ..strokeCap = StrokeCap.round
       ..color = Colors.black.withValues(alpha: 0.18); // a soft dark backing so the grey reads on light captures
+    // The rings get the same dark backing as the arms: without it a 15%-grey ring is lost in the GIF's
+    // 256-colour quantisation and frame-differencing (only the haloed arms survived, so the circles vanished
+    // when pasted elsewhere, even though they show on screen).
+    final ringHalo = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = hair * 2.2
+      ..color = Colors.black.withValues(alpha: 0.18);
     for (var i = 0; i < c.length - 1; i++) {
       final r = (c[i + 1] - c[i]).distance;
       if (r * scale < 1.5) continue; // too small to see
+      canvas.drawCircle(c[i], r, ringHalo);
       canvas.drawCircle(c[i], r, ring);
     }
     final arms = Path()..moveTo(c.first.dx, c.first.dy);

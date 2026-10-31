@@ -42,6 +42,12 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
   Color _color = const Color(0xFFE8332A);
   StrokeSize _size = StrokeSize.medium;
   int? _selection;
+  /// Same-shape peers selected alongside _selection (⌘A with an element selected). Move, restyle and delete
+  /// apply to the anchor and these together. Empty for an ordinary single selection.
+  final Set<int> _group = {};
+  /// The editor's own clipboard for shapes (Cut/Copy/Paste/Duplicate), separate from the system clipboard
+  /// that ⌘C uses for the image.
+  List<Annotation> _clip = const [];
   final _canvasKey = GlobalKey();
   final _focus = FocusNode(debugLabel: "editor"); // keyboard shortcuts go to the editor, not the hidden Library grid
 
@@ -173,13 +179,13 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     if (_textEdit != null) return _endTextEdit(cancel: true);
     if (_undo.isEmpty || _state == null) return;
     _redo.add(_state!);
-    setState(() { _state = _undo.removeLast(); _selection = null; });
+    setState(() { _state = _undo.removeLast(); _selection = null; _group.clear(); });
   }
 
   void _redoAction() {
     if (_redo.isEmpty || _state == null) return;
     _undo.add(_state!);
-    setState(() { _state = _redo.removeLast(); _selection = null; });
+    setState(() { _state = _redo.removeLast(); _selection = null; _group.clear(); });
   }
 
   Annotation? _annotation(int? id) => _state?.annotations.where((a) => a.id == id).firstOrNull;
@@ -303,7 +309,39 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
   /// Square handles just outside the image border (image coords).
   List<Offset> get _canvasHandles => CanvasPainter.rectHandles(_imageRect.inflate(4 / _viewScale));
 
-  void selectImage() => setState(() { _selection = null; _imageSelected = true; });
+  void selectImage() => setState(() { _selection = null; _group.clear(); _imageSelected = true; });
+
+  /// The anchor plus its same-shape group (⌘A). Just the anchor when nothing is grouped.
+  Iterable<int> get _selectedIds => _selection == null ? const [] : [_selection!, ..._group];
+
+  /// ⌘A with an element selected: also select every other annotation of the same shape, to move, restyle or
+  /// delete them as one. With nothing selected it keeps the old meaning (select the image for canvas resize).
+  void _selectAllSimilar() {
+    final sel = _annotation(_selection);
+    if (sel == null) return selectImage();
+    final kind = sel.shape.runtimeType;
+    setState(() {
+      _group
+        ..clear()
+        ..addAll([for (final a in _state!.annotations) if (a.id != sel.id && a.shape.runtimeType == kind) a.id]);
+      _imageSelected = false;
+    });
+  }
+
+  /// An annotation's bounding box in image coordinates (for the group selection outline).
+  Rect? _annBounds(Annotation a) {
+    final b = _bounds(a);
+    if (b != null) return b;
+    final p = CanvasPainter.outlinePath(a);
+    return p.computeMetrics().isEmpty ? null : p.getBounds();
+  }
+
+  /// Outline boxes for the grouped peers (not the anchor, which shows its own handles).
+  List<Rect> _groupBoxes() => [
+        for (final id in _group)
+          if (_annotation(id) case final a?)
+            if (_annBounds(a) case final r?) r,
+      ];
 
   // ---- The menu bar (lib/app/app_menu.dart) ----
 
@@ -320,12 +358,15 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
       case 'undo': _undoAction();
       case 'redo': _redoAction();
       case 'copy': _copyImage();
+      case 'cut': _cutSelection();
+      case 'paste': _pasteClipboard();
+      case 'duplicate': _duplicateSelection();
       case 'copyGif': copyAnimatedGif();
       case 'copySticker': copySticker();
       case 'copyStillSticker': copyStillSticker();
       case 'copyText': _copyAllText();
       case 'delete': _deleteSelection();
-      case 'selectAll': selectImage();
+      case 'selectAll': _selectAllSimilar();
       case 'save': save();
       case 'saveAs': saveAs();
       case 'saveGif': saveAnimatedGif();
@@ -576,11 +617,13 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     // Any tool: clicking an existing annotation selects it for editing (drag moves it)
     final hit = _hit(p);
     if (hit != null) {
-      setState(() { _selection = hit.id; _imageSelected = false; });
+      // Tapping within the current ⌘A group keeps it (so the drag moves the whole group); otherwise select just this shape.
+      final inGroup = _group.isNotEmpty && _selectedIds.contains(hit.id);
+      if (!inGroup) setState(() { _group.clear(); _selection = hit.id; _imageSelected = false; });
       _beginMove(hit, p);
       return;
     }
-    setState(() => _selection = null);
+    setState(() { _selection = null; _group.clear(); });
     if (_tool == Tool.select) {
       setState(() => _imageSelected = _imageRect.contains(p)); // empty canvas selects the image
       return;
@@ -603,6 +646,15 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     } else if (_dragId != null) {
       var a = _annotation(_dragId);
       if (a == null) return;
+      // A grouped body-drag moves every selected shape by the same step (resize handles stay anchor-only).
+      if (_group.isNotEmpty && _resizeHandle == null && _imageMove == null) {
+        final d = p - _lastPoint;
+        _lastPoint = p;
+        final ids = _selectedIds.toSet();
+        _commit(_state!.copyWith(annotations: [for (final x in _state!.annotations) ids.contains(x.id) ? x.movedBy(d) : x]),
+            snapshot: false);
+        return;
+      }
       if (_pendingBend case (final stretch, final at)) {
         _pendingBend = null;
         a = a.insertBend(stretch + 1, at);
@@ -747,7 +799,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
   void _add(Annotation a) {
     final next = _state!.copyWith(annotations: [..._state!.annotations, a]);
     _commit(next);
-    setState(() => _selection = a.id);
+    setState(() { _selection = a.id; _group.clear(); });
   }
 
   /// Draws `a` on with Fourier circles, as the GIF does (Play; while drawing, the circles follow live).
@@ -872,7 +924,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     _textController.runs = CanvasPainter.runsOf(a);
     _lastText = text;
     _textController.value = TextEditingValue(text: text, selection: TextSelection.collapsed(offset: text.length));
-    setState(() { _textEdit = (id: a.id, before: before, isNew: isNew); _selection = a.id; _imageSelected = false; });
+    setState(() { _textEdit = (id: a.id, before: before, isNew: isNew); _selection = a.id; _group.clear(); _imageSelected = false; });
     WidgetsBinding.instance.addPostFrameCallback((_) => _textFocus.requestFocus());
   }
 
@@ -1103,7 +1155,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     var next = _state!.copyWith(annotations: [..._state!.annotations, ann]);
     next = await _grownToFit(next);
     _commit(next);
-    setState(() { _selection = ann.id; _tool = Tool.select; });
+    setState(() { _selection = ann.id; _group.clear(); _tool = Tool.select; });
   }
 
   /// Grows the base canvas to fit every image overlay, shifting content if it spills past top/left.
@@ -1424,9 +1476,58 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
 
   void _deleteSelection() {
     if (_selection == null) return;
-    final anns = [for (final a in _state!.annotations) if (a.id != _selection) a];
+    final ids = _selectedIds.toSet();
+    final anns = [for (final a in _state!.annotations) if (!ids.contains(a.id)) a];
     _commit(_state!.copyWith(annotations: anns));
-    setState(() => _selection = null);
+    setState(() { _selection = null; _group.clear(); });
+  }
+
+  /// A copy of `a` with a fresh id (for Paste/Duplicate); the shape is immutable, so it is shared until moved.
+  Annotation _clone(Annotation a, int id) => Annotation(
+      id: id, shape: a.shape, color: a.color, size: a.size, arrowStyle: a.arrowStyle, scale: a.scale, textFormat: a.textFormat);
+
+  /// Puts the selected shapes on the editor's clipboard. Returns false when nothing is selected.
+  bool _copySelection() {
+    final ids = _selectedIds.toSet();
+    if (ids.isEmpty) return false;
+    _clip = [for (final a in _state!.annotations) if (ids.contains(a.id)) a];
+    return true;
+  }
+
+  /// ⌘X: copy the selected shapes to the clipboard and remove them.
+  void _cutSelection() {
+    if (!_copySelection()) return;
+    final ids = _selectedIds.toSet();
+    _commit(_state!.copyWith(annotations: [for (final a in _state!.annotations) if (!ids.contains(a.id)) a]));
+    setState(() { _selection = null; _group.clear(); });
+  }
+
+  /// Adds `copies` to the canvas and selects them (the first is the anchor, the rest its group).
+  void _addAndSelect(List<Annotation> copies) {
+    if (copies.isEmpty) return;
+    _commit(_state!.copyWith(annotations: [..._state!.annotations, ...copies]));
+    setState(() {
+      _selection = copies.first.id;
+      _group..clear()..addAll(copies.skip(1).map((a) => a.id));
+      _imageSelected = false;
+    });
+  }
+
+  /// ⌘V: paste the clipboard shapes, nudged a little so they are visible, and leave them selected. Repeated
+  /// pastes cascade.
+  void _pasteClipboard() {
+    if (_clip.isEmpty) return;
+    final copies = [for (final a in _clip) _clone(a, _nextId++).movedBy(const Offset(20, 20))];
+    _addAndSelect(copies);
+    _clip = copies;
+  }
+
+  /// ⌘D: duplicate the selected shapes in place (nudged) and select the copies.
+  void _duplicateSelection() {
+    final ids = _selectedIds.toSet();
+    if (ids.isEmpty) return;
+    final copies = [for (final a in _state!.annotations) if (ids.contains(a.id)) _clone(a, _nextId++).movedBy(const Offset(20, 20))];
+    _addAndSelect(copies);
   }
 
   void _setTool(Tool t) {
@@ -1439,7 +1540,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
       // R / O pick a rectangle / an ellipse unless the Shape tool already draws that kind's square / circle
       if (t == Tool.box && _shapeKind.oval) _shapeKind = ShapeKind.rectangle;
       if (t == Tool.ellipse && !_shapeKind.oval) _shapeKind = ShapeKind.ellipse;
-      _tool = t; _selection = null;
+      _tool = t; _selection = null; _group.clear();
     });
   }
 
@@ -1474,6 +1575,11 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     }
     setState(() => _tool = k.tool);
   }
+
+  @visibleForTesting
+  int get annotationCount => _state?.annotations.length ?? 0;
+  @visibleForTesting
+  int get groupCount => _group.length;
 
   // ---- PanelHost (the properties panel) ----
 
@@ -1514,7 +1620,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
   void pickColor(Color c, {bool refresh = true}) {
     setState(() => _color = c);
     final a = selected;
-    if (a != null && a.shape is! ImageShape) _restyleSelected(a.copyWith(color: c));
+    if (a != null && a.shape is! ImageShape) _restyleAll((x) => x.copyWith(color: c));
   }
 
   @override
@@ -1529,11 +1635,11 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
       if (styleKind != null) setArrowStyle(currentArrowStyle.withWidth(null)); // S / M / L replace a slider thickness
       return;
     }
-    _restyleSelected(a.isTextual
-        ? a.copyWith(size: s, textFormat: a.textFormat.withPoints(null))
-        : a.styleKind != null
-            ? a.copyWith(size: s, arrowStyle: a.arrowStyle.withWidth(null))
-            : a.copyWith(size: s));
+    _restyleAll((x) => x.isTextual
+        ? x.copyWith(size: s, textFormat: x.textFormat.withPoints(null))
+        : x.styleKind != null
+            ? x.copyWith(size: s, arrowStyle: x.arrowStyle.withWidth(null))
+            : x.copyWith(size: s));
   }
 
   /// Restyles the selection (undoable) and makes the style the default for its kind.
@@ -1542,7 +1648,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     final k = styleKind;
     if (k == null) return;
     final a = selected;
-    if (a != null && a.styleKind != null) _replace(a.copyWith(arrowStyle: style));
+    if (a != null && a.styleKind != null) _restyleAll((x) => x.copyWith(arrowStyle: style));
     setState(() => _styleDefaults[k] = style);
     Native.setDataString('style.${k.name}', jsonEncode(style.toJson()));
   }
@@ -1558,8 +1664,8 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     }
     final a = selected;
     if (a == null) return;
-    _restyleSelected(a.copyWith(color: q.colorValue, size: q.size, arrowStyle: a.styleKind != null ? q.style : null,
-        textFormat: a.isTextual ? a.textFormat.withPoints(null) : null));
+    _restyleAll((x) => x.copyWith(color: q.colorValue, size: q.size, arrowStyle: x.styleKind != null ? q.style : null,
+        textFormat: x.isTextual ? x.textFormat.withPoints(null) : null));
   }
 
   @override
@@ -1601,6 +1707,16 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     if (kind == null) return;
     await QuickStyles.clear(kind);
     setState(() {});
+  }
+
+  /// Applies the same change to every selected shape (anchor + its ⌘A group) as one undo step. With no group
+  /// it falls back to [_restyleSelected] (which keeps an inline text field focused while typing).
+  void _restyleAll(Annotation Function(Annotation a) change) {
+    final anchor = _annotation(_selection);
+    if (anchor == null) return;
+    if (_group.isEmpty) return _restyleSelected(change(anchor));
+    final ids = _selectedIds.toSet();
+    _commit(_state!.copyWith(annotations: [for (final x in _state!.annotations) ids.contains(x.id) ? change(x) : x]));
   }
 
   /// Restyles the selection: one undo step normally; while it is being typed into, part of the typing
@@ -1648,7 +1764,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
   void setTextFormat(TextFormat f) {
     final a = selected;
     final kind = a != null && a.isTextual ? _textKind(a) : (_tool == Tool.callout ? 'callout' : 'text');
-    if (a != null && a.isTextual) _restyleSelected(a.copyWith(textFormat: f));
+    if (a != null && a.isTextual) _restyleAll((x) => x.copyWith(textFormat: f));
     setState(() => _textFormats[kind] = f);
     Native.setDataString('style.textFormat.$kind', jsonEncode(f.toJson()));
   }
@@ -1674,6 +1790,9 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
         const SingleActivator(LogicalKeyboardKey.keyC, meta: true): _copyImage,
         const SingleActivator(LogicalKeyboardKey.keyC, meta: true, shift: true): copyAnimatedGif,
         if (Platform.isMacOS) const SingleActivator(LogicalKeyboardKey.keyC, meta: true, control: true): copySticker,
+        const SingleActivator(LogicalKeyboardKey.keyX, meta: true): _cutSelection,
+        const SingleActivator(LogicalKeyboardKey.keyV, meta: true): _pasteClipboard,
+        const SingleActivator(LogicalKeyboardKey.keyD, meta: true): _duplicateSelection,
         const SingleActivator(LogicalKeyboardKey.keyS, meta: true): save,
         const SingleActivator(LogicalKeyboardKey.keyS, meta: true, shift: true): saveAs,
         _cmd(LogicalKeyboardKey.equal): zoomIn,
@@ -1685,7 +1804,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
         SingleActivator(LogicalKeyboardKey.keyT, meta: Platform.isMacOS, control: !Platform.isMacOS, alt: true):
             () => _setPinned(!_pinned),
         const SingleActivator(LogicalKeyboardKey.keyW, meta: true): AppController.instance.onWindowClose,
-        const SingleActivator(LogicalKeyboardKey.keyA, meta: true): selectImage,
+        const SingleActivator(LogicalKeyboardKey.keyA, meta: true): _selectAllSimilar,
         const SingleActivator(LogicalKeyboardKey.delete): _deleteSelection,
         const SingleActivator(LogicalKeyboardKey.backspace): _deleteSelection,
         for (final e in _toolKeys.entries) SingleActivator(e.key): () => _setTool(e.value),
@@ -1807,6 +1926,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
                         trail: _trail == null || _createCurrent == null ? null : [..._trail!, _createCurrent!],
                         guides: _guides,
                         boundsOfSelection: _textEdit != null || selected == null || selected!.rect != null ? null : _bounds(selected!),
+                        groupBoxes: _selection != null && _group.isNotEmpty ? _groupBoxes() : null,
                       ),
                     ),
                   ),
@@ -2362,14 +2482,15 @@ class _PreviewPainter extends CustomPainter {
   final ValueNotifier<double> march;
   final Rect? canvasResize;
   final Rect? boundsOfSelection;
+  final List<Rect>? groupBoxes; // ⌘A group peers: a thin accent outline round each (image coords)
   final List<Guide> guides;
   final bool fourier; // Fourier drawing: spinning circles trace the stroke as it's drawn
   final List<Offset>? trail; // the drag so far, every point (Fourier drawing traces it)
 
   _PreviewPainter({required this.base, required this.origin, required this.tool, required this.color, required this.size,
       required this.scale, required this.style, this.createStart, this.createCurrent, this.penPoints, this.follow,
-      this.canvasChrome = false, this.ants, required this.march, this.canvasResize, this.boundsOfSelection, this.guides = const [],
-      this.fourier = false, this.trail})
+      this.canvasChrome = false, this.ants, required this.march, this.canvasResize, this.boundsOfSelection, this.groupBoxes,
+      this.guides = const [], this.fourier = false, this.trail})
       : super(repaint: Listenable.merge([ants, march]));
 
   static const _accent = Color(0xFF2F7CF6);
@@ -2436,6 +2557,12 @@ class _PreviewPainter extends CustomPainter {
     if (boundsOfSelection != null) {
       final r = Rect.fromLTRB(boundsOfSelection!.left * scale, boundsOfSelection!.top * scale,
           boundsOfSelection!.right * scale, boundsOfSelection!.bottom * scale).inflate(4);
+      _border(canvas, r, 0, accent: true);
+    }
+
+    // ⌘A group peers: a thin accent outline around each, so you see the whole group that moves/restyles together.
+    for (final b in groupBoxes ?? const <Rect>[]) {
+      final r = Rect.fromLTRB(b.left * scale, b.top * scale, b.right * scale, b.bottom * scale).inflate(4);
       _border(canvas, r, 0, accent: true);
     }
 

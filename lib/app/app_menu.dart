@@ -145,7 +145,10 @@ class AppMenuBar extends StatelessWidget {
               item('Redo', () => ed('redo'), cmd(LogicalKeyboardKey.keyZ, shift: true)),
             ]),
             ?group([
+              item('Cut', () => ed('cut'), cmd(LogicalKeyboardKey.keyX)),
               item('Copy', () => ed('copy'), cmd(LogicalKeyboardKey.keyC)),
+              item('Paste', () => ed('paste'), cmd(LogicalKeyboardKey.keyV)),
+              item('Duplicate', () => ed('duplicate'), cmd(LogicalKeyboardKey.keyD)),
               item('Copy as Animated GIF', () => ed('copyGif'), cmd(LogicalKeyboardKey.keyC, shift: true)),
               item('Copy as WhatsApp Sticker', () => ed('copySticker'), cmd(LogicalKeyboardKey.keyC, ctrl: true)),
               item('Copy as Still Sticker', () => ed('copyStillSticker')),
@@ -153,7 +156,7 @@ class AppMenuBar extends StatelessWidget {
             ]),
             ?group([
               item('Delete', () => ed('delete')),
-              item('Select Image', () => ed('selectAll'), cmd(LogicalKeyboardKey.keyA)),
+              item('Select Same Shapes', () => ed('selectAll'), cmd(LogicalKeyboardKey.keyA)),
             ]),
           ] else ...[
             ?group([
