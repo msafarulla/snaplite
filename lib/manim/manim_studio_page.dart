@@ -6,6 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../app/app_controller.dart';
+import '../app/size_chooser.dart';
 import '../platform/native.dart';
 import 'manim_doc.dart';
 import 'manim_runner.dart';
@@ -70,7 +71,10 @@ class ManimStudioPageState extends State<ManimStudioPage> {
   Offset _shapeFrom = Offset.zero;
   final _images = <int, ui.Image>{}; // decoded for the stage
   ({String path, String version})? _manim;
-  bool _looked = false, _latex = true, _rendering = false, _hd = false, _showLog = false;
+  bool _looked = false, _latex = true, _rendering = false, _showLog = false;
+  /// Render height in pixels (the user's clarity choice): any custom value. Width is 16:9.
+  static const _minRenderH = 240, _maxRenderH = 2160;
+  int _renderH = 480;
   final _log = StringBuffer();
   final _logScroll = ScrollController();
   String? _result;
@@ -102,6 +106,10 @@ class ManimStudioPageState extends State<ManimStudioPage> {
       _decodeImage(i);
     }
     _find();
+    Native.getString('manimRenderH').then((v) {
+      final n = int.tryParse(v ?? '');
+      if (mounted && n != null) setState(() => _renderH = n.clamp(_minRenderH, _maxRenderH));
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) => ManimStudioPage.active.value = this);
   }
 
@@ -363,10 +371,10 @@ class ManimStudioPageState extends State<ManimStudioPage> {
     }
     _saveNow();
     setState(() { _rendering = true; _result = null; _log.clear(); _showLog = true; });
-    final h = _hd ? 1080 : 480;
+    final h = _renderH.clamp(_minRenderH, _maxRenderH);
     final result = await ManimRunner.render(
       manim: m.path, code: doc.code(latex: _latex), className: ManimDoc.className, files: doc.files,
-      width: (h * 16 / 9 / 2).round() * 2, height: h, fps: _hd ? 30 : 15, log: _say,
+      width: (h * 16 / 9 / 2).round() * 2, height: h, fps: h >= 720 ? 30 : 15, log: _say,
     );
     if (!mounted) return;
     setState(() { _rendering = false; _result = result; });
@@ -499,11 +507,18 @@ class ManimStudioPageState extends State<ManimStudioPage> {
       actions: [
         TextButton.icon(onPressed: showCode, icon: const Icon(Icons.code, size: 18), label: const Text('Code')),
         const SizedBox(width: 8),
-        SegmentedButton<bool>(
-          segments: const [ButtonSegment(value: false, label: Text('Preview')), ButtonSegment(value: true, label: Text('HD 1080p'))],
-          selected: {_hd},
-          showSelectedIcon: false,
-          onSelectionChanged: (v) => setState(() => _hd = v.first),
+        Tooltip(
+          message: 'Render height in pixels — type the clarity you want (width stays 16:9)',
+          waitDuration: const Duration(milliseconds: 500),
+          child: SizeChooser(
+            value: _renderH,
+            min: _minRenderH,
+            max: _maxRenderH,
+            onChanged: (h) {
+              setState(() => _renderH = h);
+              Native.setString('manimRenderH', '$h');
+            },
+          ),
         ),
         const SizedBox(width: 8),
         FilledButton.icon(

@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import '../app/size_chooser.dart';
+import '../export/build_up_gif.dart';
 import '../model/annotation.dart';
 import 'canvas_painter.dart';
 import 'quick_styles.dart';
@@ -17,6 +19,8 @@ abstract class PanelHost {
   void setFollowDrag(bool on);
   bool get gifFourier; // Fourier circles draw new strokes in the editor and trace them in the build-up GIF
   void setGifFourier(bool on);
+  int get gifMaxSide; // the build-up GIF's longest side in output pixels (S/M/L or custom)
+  void setGifMaxSide(int px);
   bool get canPlayFourier; // the selection can be drawn by Fourier circles
   void playFourier();
   ShapeKind? get shapeKind; // a box or ellipse (selected, or the Shape tool's choice); null otherwise
@@ -232,6 +236,20 @@ class PropertiesPanel extends StatelessWidget {
                 message: 'Watch the circles draw the selected stroke',
                 child: _PillButton(icon: Icons.play_arrow, label: 'Play', onTap: host.playFourier),
               ),
+          ]),
+          _row(context, 'GIF size', [
+            Expanded(
+              child: Tooltip(
+                message: 'The animated GIF\'s longest side in pixels — type the clarity you want',
+                waitDuration: const Duration(milliseconds: 700),
+                child: SizeChooser(
+                  value: host.gifMaxSide,
+                  min: BuildUpGif.minMaxSide,
+                  max: BuildUpGif.maxMaxSide,
+                  onChanged: host.setGifMaxSide,
+                ),
+              ),
+            ),
           ]),
           // One row each, so the whole panel fits without scrolling
           Wrap(spacing: 14, runSpacing: 4, children: [

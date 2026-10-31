@@ -50,8 +50,37 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
   List<Annotation> _clip = const [];
   final _canvasKey = GlobalKey();
   final _focus = FocusNode(debugLabel: "editor"); // keyboard shortcuts go to the editor, not the hidden Library grid
+  bool _editingDims = false; // the W×H fields under the image have focus: let them keep Backspace etc.
+  Size? _originalSize; // the image's dimensions when the document was created/opened (for "fit to original")
+  int? _imageBytes; // the current base image's PNG size, shown after the W×H readout
+  ui.Image? _bytesImage; // which image _imageBytes was measured for, so edits that don't touch it skip the work
 
   void focus() => _focus.requestFocus();
+
+  @visibleForTesting
+  double get debugViewScale => _viewScale; // on-screen points per image pixel (x)
+  @visibleForTesting
+  double get debugViewScaleY => _viewScaleY; // on-screen points per image pixel (y)
+  @visibleForTesting
+  Size? get debugOriginalSize => _originalSize;
+  @visibleForTesting
+  Future<void> scaleCanvasTo(int w, int h) => _scaleCanvasTo(w, h);
+
+  /// Measures the current base image's encoded (PNG) size for the readout, off the build. Cheap to call on
+  /// every commit: it skips when the image object is the same one already measured.
+  Future<void> _refreshImageBytes() async {
+    final img = _state?.image;
+    if (img == null || identical(img, _bytesImage)) return;
+    final data = await img.toByteData(format: ui.ImageByteFormat.png);
+    if (!mounted || !identical(_state?.image, img)) return;
+    setState(() { _bytesImage = img; _imageBytes = data?.lengthInBytes; });
+  }
+
+  static String _fmtBytes(int b) {
+    if (b < 1024) return '$b B';
+    if (b < 1024 * 1024) return '${(b / 1024).toStringAsFixed(b < 10 * 1024 ? 1 : 0)} KB';
+    return '${(b / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
 
   // In-place typing for Text and Callout: the annotation being typed into, and the state before (for undo/cancel)
   ({int id, CanvasState before, bool isNew})? _textEdit;
@@ -103,6 +132,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     _loadPrefs();
     Native.getBool('followDrag').then((on) { if (mounted && on != null) setState(() => _followDrag = on); });
     Native.getBool('gifFourier').then((on) { if (mounted && on != null) setState(() => BuildUpGif.fourier = on); });
+    Native.getString('gifMaxSide').then((v) { final n = int.tryParse(v ?? ''); if (mounted && n != null) setState(() => BuildUpGif.setMaxSide(n)); });
     Native.getBool('pinOnTop').then((on) { if (on == true && !_pinTouched) _setPinned(true, save: false); });
     _textController.addListener(_textChanged);
     Native.onColorPicked = (rgb) => pickColor(Color(0xFF000000 | rgb), refresh: false);
@@ -149,6 +179,8 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     canvas.drawRect(Rect.fromLTWH(0, 0, w.toDouble(), h.toDouble()), Paint()..color = Colors.white);
     final img = await recorder.endRecording().toImage(w, h);
     setState(() => _state = _savedState = CanvasState(image: img));
+    _originalSize = Size(w.toDouble(), h.toDouble());
+    _refreshImageBytes();
   }
 
   void _commit(CanvasState next, {bool snapshot = true}) {
@@ -158,6 +190,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     }
     _clearCopied(); // any edit ends the "copied" marching ants
     setState(() => _state = next);
+    _refreshImageBytes();
   }
 
   CanvasState? _savedState; // the state last opened or saved
@@ -221,7 +254,8 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
   Timer? _fourierTimer;
   /// Resizing the canvas by its square handles: handle index, new rect (image coords), grab offset.
   (int, Rect, Offset)? _canvasDrag;
-  double _viewScale = 1; // view points per image point, from the last layout
+  double _viewScale = 1; // view points per image point (x), from the last layout
+  double _viewScaleY = 1; // view points per image point (y); differs from _viewScale after a non-proportional resize
 
   // ---- Zoom and pan ----
   // One transform maps the canvas area to the image: view = origin + image * scale. Fit picks the scale
@@ -736,6 +770,21 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
     setState(() => _imageSelected = true);
   }
 
+  /// Scale the whole canvas (image resampled, annotations scaled with it) to [w]×[h] pixels — what the
+  /// editable W×H fields under the image do, so reducing the numbers shrinks the picture rather than
+  /// cropping it.
+  Future<void> _scaleCanvasTo(int w, int h) async {
+    final s = _state!;
+    if (w == s.image.width && h == s.image.height) return;
+    final sx = w / s.image.width, sy = h / s.image.height;
+    final rec = ui.PictureRecorder();
+    final src = Rect.fromLTWH(0, 0, s.image.width.toDouble(), s.image.height.toDouble());
+    Canvas(rec).drawImageRect(s.image, src, Rect.fromLTWH(0, 0, w.toDouble(), h.toDouble()),
+        Paint()..filterQuality = FilterQuality.high);
+    final out = await rec.endRecording().toImage(w, h);
+    _commit(s.copyWith(image: out, annotations: [for (final a in s.annotations) a.scaledBy(sx, sy)]));
+  }
+
   void _finishCreate(Offset a, Offset b) {
     if (_tool == Tool.callout) {
       // Drag from what to point at to where the bubble goes; a click points at the click
@@ -1013,8 +1062,10 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
       _canvasDrag = null;
       _zoom = null; // a new image opens fitted
       _pan = Offset.zero;
+      _originalSize = Size(state!.image.width.toDouble(), state.image.height.toDouble());
     });
     _clearCopied();
+    _refreshImageBytes();
     await windowManager.setTitle('SnapNow — ${path.split('/').last}');
   }
 
@@ -1784,7 +1835,7 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
   Widget build(BuildContext context) {
     final state = _state;
     return CallbackShortcuts(
-      bindings: _textEdit != null ? const {} : {
+      bindings: (_textEdit != null || _editingDims) ? const {} : {
         const SingleActivator(LogicalKeyboardKey.keyZ, meta: true): _undoAction,
         const SingleActivator(LogicalKeyboardKey.keyZ, meta: true, shift: true): _redoAction,
         const SingleActivator(LogicalKeyboardKey.keyC, meta: true): _copyImage,
@@ -1841,12 +1892,21 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
   Widget _canvasArea(CanvasState state) {
     _syncMarch(state);
     return LayoutBuilder(builder: (context, constraints) {
-      const pad = 20.0;
+      const pad = 20.0, labelGap = 34.0; // labelGap: room under the image for the editable dimensions
       final iw = state.image.width.toDouble(), ih = state.image.height.toDouble();
+      // Display at the ORIGINAL capture's footprint, so reducing the pixel count (for a smaller file) makes
+      // the picture grainier without shrinking it on the canvas. Falls back to the current size pre-load.
+      final dw = _originalSize?.width ?? iw, dh = _originalSize?.height ?? ih;
       final view = Size(constraints.maxWidth, constraints.maxHeight);
-      final fit = math.max(0.01, math.min(math.min((view.width - pad * 2) / iw, (view.height - pad * 2) / ih), 1.0));
-      final scale = _zoom ?? fit;
-      final fitted = Size(iw * scale, ih * scale);
+      final fit = math.max(0.01, math.min(math.min((view.width - pad * 2) / dw, (view.height - pad * 2 - labelGap) / dh), 1.0));
+      // image→view scale that fills that footprint with however many pixels the image now has, PER AXIS, so a
+      // width-only (or height-only) pixel change keeps both the width and the height of the picture on screen
+      // (it just gets grainier on the reduced axis) instead of stretching the other one. A manual zoom is
+      // uniform (same on both axes), so it never distorts.
+      final scaleX = _zoom ?? (dw * fit / iw);
+      final scaleY = _zoom ?? (dh * fit / ih);
+      final scale = scaleX; // representative scale for hit-test tolerances / zoom readout
+      final fitted = Size(iw * scaleX, ih * scaleY); // == (dw*fit, dh*fit): the original footprint on both axes
       final centred = Offset((view.width - fitted.width) / 2, (view.height - fitted.height) / 2);
       // Centred on an axis where the image fits; otherwise pannable, but never further than its edge + pad
       double axis(double c, double p, double viewLen, double len) =>
@@ -1855,9 +1915,10 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
           axis(centred.dy, _pan.dy, view.height, fitted.height));
       _pan = origin - centred; // drop pan that the clamp swallowed, so panning back responds at once
       _viewScale = scale;
+      _viewScaleY = scaleY;
       _viewOrigin = origin;
       _viewSize = view;
-      Offset toImage(Offset local) => (local - origin) / scale;
+      Offset toImage(Offset local) => Offset((local.dx - origin.dx) / scaleX, (local.dy - origin.dy) / scaleY);
       final kind = StyleKind.ofTool(_tool);
       return ClipRect(child: DragTarget<String>(
         // A filmstrip thumbnail dropped anywhere over the canvas area
@@ -1910,11 +1971,11 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
                     onPointerPanZoomUpdate: _onPanZoomUpdate,
                     child: CustomPaint(
                       painter: _PreviewPainter(
-                        base: CanvasPainter(state: state, selectionId: _fourierId == null ? _selection : null, scale: scale,
+                        base: CanvasPainter(state: state, selectionId: _fourierId == null ? _selection : null, scale: scale, scaleY: scaleY,
                             hiddenTextId: _textEdit?.id, march: _march, epicycles: _fourierId != null,
                             progress: _fourierId == null ? null : {for (final a in state.annotations) a.id: a.id == _fourierId ? _fourierT : 1.0}),
                         origin: origin,
-                        tool: _tool, color: _color, size: _size, scale: scale,
+                        tool: _tool, color: _color, size: _size, scale: scale, scaleY: scaleY,
                         style: kind == null ? ArrowStyle.arrow : _styleFor(kind),
                         createStart: _createStart, createCurrent: _createCurrent, penPoints: _penPoints,
                         follow: _createStart == null || _createCurrent == null ? null : _follow(_createStart!, _createCurrent!),
@@ -1930,6 +1991,21 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
                       ),
                     ),
                   ),
+                ),
+              ),
+            ),
+            // The image's own pixel size, centred just under it — editable to resize the canvas.
+            Positioned(
+              left: origin.dx, top: origin.dy + fitted.height + 4, width: fitted.width,
+              child: Center(
+                child: _CanvasDimsEditor(
+                  width: state.image.width,
+                  height: state.image.height,
+                  bytesLabel: _imageBytes == null ? null : _fmtBytes(_imageBytes!),
+                  originalWidth: _originalSize?.width.round(),
+                  originalHeight: _originalSize?.height.round(),
+                  onApply: (w, h) => _scaleCanvasTo(w, h),
+                  onFocusChange: (f) { if (f != _editingDims) setState(() => _editingDims = f); },
                 ),
               ),
             ),
@@ -2140,6 +2216,15 @@ class EditorPageState extends State<EditorPage> implements PanelHost {
   void setGifFourier(bool on) {
     setState(() => BuildUpGif.fourier = on);
     Native.setBool('gifFourier', on);
+  }
+
+  @override
+  int get gifMaxSide => BuildUpGif.maxSide;
+
+  @override
+  void setGifMaxSide(int px) {
+    setState(() => BuildUpGif.setMaxSide(px));
+    Native.setString('gifMaxSide', '${BuildUpGif.maxSide}'); // persist the clamped value
   }
 
   /// Clicking an arrow, line, box, ellipse or pen stroke shows the thickness slider beside it.
@@ -2463,6 +2548,113 @@ class _MoreButton extends StatelessWidget {
   }
 }
 
+/// The image's pixel size shown just under it, as two editable fields (`W × H px`). Committing resizes the
+/// canvas to those dimensions from the top-left (the same operation as the drag handles / Resize dialog),
+/// clamped to 16..10000. The fields re-sync whenever the image changes (resize by handles, crop, undo…).
+class _CanvasDimsEditor extends StatefulWidget {
+  final int width, height;
+  final String? bytesLabel; // the image's encoded size (null while being measured)
+  final int? originalWidth, originalHeight; // the capture's own size, for the "fit to original" button
+  final void Function(int w, int h) onApply;
+  final ValueChanged<bool> onFocusChange; // true while either field holds focus (editor mutes its shortcuts)
+  const _CanvasDimsEditor({
+    required this.width,
+    required this.height,
+    required this.bytesLabel,
+    required this.originalWidth,
+    required this.originalHeight,
+    required this.onApply,
+    required this.onFocusChange,
+  });
+
+  @override
+  State<_CanvasDimsEditor> createState() => _CanvasDimsEditorState();
+}
+
+class _CanvasDimsEditorState extends State<_CanvasDimsEditor> {
+  late final TextEditingController _w = TextEditingController(text: '${widget.width}');
+  late final TextEditingController _h = TextEditingController(text: '${widget.height}');
+
+  @override
+  void didUpdateWidget(_CanvasDimsEditor old) {
+    super.didUpdateWidget(old);
+    if (widget.width != old.width && '${widget.width}' != _w.text) _w.text = '${widget.width}';
+    if (widget.height != old.height && '${widget.height}' != _h.text) _h.text = '${widget.height}';
+  }
+
+  @override
+  void dispose() {
+    _w.dispose();
+    _h.dispose();
+    super.dispose();
+  }
+
+  void _apply() {
+    final w = int.tryParse(_w.text.trim()), h = int.tryParse(_h.text.trim());
+    if (w == null || h == null) {
+      _w.text = '${widget.width}';
+      _h.text = '${widget.height}';
+      return;
+    }
+    final cw = w.clamp(16, 10000), ch = h.clamp(16, 10000);
+    _w.text = '$cw';
+    _h.text = '$ch';
+    if (cw != widget.width || ch != widget.height) widget.onApply(cw, ch);
+  }
+
+  Widget _field(TextEditingController c) => SizedBox(
+        width: 54,
+        child: TextField(
+          controller: c,
+          keyboardType: TextInputType.number,
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontSize: 11),
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          decoration: const InputDecoration(
+            isDense: true,
+            contentPadding: EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+            border: OutlineInputBorder(),
+          ),
+          onSubmitted: (_) => _apply(),
+          onTapOutside: (_) => _apply(),
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final col = Theme.of(context).colorScheme.onSurfaceVariant;
+    final style = TextStyle(fontSize: 11, color: col);
+    final ow = widget.originalWidth, oh = widget.originalHeight;
+    final canFit = ow != null && oh != null && (ow != widget.width || oh != widget.height);
+    // Reports focus for the whole group (either field) so the editor can mute its Backspace/Delete/letter
+    // shortcuts while a number is being edited.
+    return Focus(
+      canRequestFocus: false,
+      onFocusChange: widget.onFocusChange,
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        _field(_w),
+        Padding(padding: const EdgeInsets.symmetric(horizontal: 6), child: Text('×', style: style)),
+        _field(_h),
+        Padding(padding: const EdgeInsets.only(left: 4), child: Text('px', style: style)),
+        if (widget.bytesLabel != null)
+          Padding(padding: const EdgeInsets.only(left: 8), child: Text('· ${widget.bytesLabel}', style: style)),
+        if (canFit)
+          Padding(
+            padding: const EdgeInsets.only(left: 2),
+            child: Tooltip(
+              message: 'Fit to original $ow × $oh',
+              child: InkWell(
+                borderRadius: BorderRadius.circular(6),
+                onTap: () => widget.onApply(ow, oh),
+                child: Padding(padding: const EdgeInsets.all(3), child: Icon(Icons.fit_screen_outlined, size: 15, color: col)),
+              ),
+            ),
+          ),
+      ]),
+    );
+  }
+}
+
 /// Paints the committed state plus the in-progress gesture (drawn with the real style) and the canvas
 /// chrome: the image's dashed border and square handles when it is selected, marching ants after Copy,
 /// and the new outline while the canvas is being resized. `origin` is where the image sits in the area.
@@ -2474,6 +2666,7 @@ class _PreviewPainter extends CustomPainter {
   final StrokeSize size;
   final ArrowStyle style;
   final double scale;
+  final double? scaleY; // vertical scale (defaults to `scale`); differs after a non-proportional resize
   final Offset? createStart, createCurrent;
   final List<Offset>? penPoints;
   final ({Offset from, Offset to, List<Offset> points, List<Offset?> tangents})? follow; // Curve: the path so far
@@ -2488,7 +2681,7 @@ class _PreviewPainter extends CustomPainter {
   final List<Offset>? trail; // the drag so far, every point (Fourier drawing traces it)
 
   _PreviewPainter({required this.base, required this.origin, required this.tool, required this.color, required this.size,
-      required this.scale, required this.style, this.createStart, this.createCurrent, this.penPoints, this.follow,
+      required this.scale, this.scaleY, required this.style, this.createStart, this.createCurrent, this.penPoints, this.follow,
       this.canvasChrome = false, this.ants, required this.march, this.canvasResize, this.boundsOfSelection, this.groupBoxes,
       this.guides = const [], this.fourier = false, this.trail})
       : super(repaint: Listenable.merge([ants, march]));
@@ -2499,7 +2692,8 @@ class _PreviewPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     canvas.save();
     canvas.translate(origin.dx, origin.dy);
-    final imageSize = Size(base.state.image.width * scale, base.state.image.height * scale);
+    final sy = scaleY ?? scale;
+    final imageSize = Size(base.state.image.width * scale, base.state.image.height * sy);
     canvas.save();
     canvas.clipRect(Offset.zero & imageSize, doAntiAlias: false); // annotations stay on the image
     base.paint(canvas, imageSize);
@@ -2507,7 +2701,7 @@ class _PreviewPainter extends CustomPainter {
     base.paintSelection(canvas); // handles may sit on the edge, so outside the clip
 
     canvas.save();
-    canvas.scale(scale);
+    canvas.scale(scale, sy);
     Annotation ann(Shape s) => Annotation(id: -1, shape: s, color: color, size: this.size, arrowStyle: style, scale: base.state.density);
     // The stroke being drawn; with Fourier drawing on, its circles follow the pointer in real time
     void live(Annotation a) {

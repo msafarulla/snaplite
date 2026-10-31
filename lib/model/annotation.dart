@@ -506,6 +506,33 @@ class Annotation {
     if (s == null) return withRect(rect!.shift(d));
     return copyWith(shape: s);
   }
+
+  /// Every geometry coordinate multiplied toward the image origin, for scaling the whole canvas to a new
+  /// pixel size. Stroke width and text size (set by `size`, not pixels) are left as they are.
+  Annotation scaledBy(double sx, double sy) {
+    Offset sc(Offset o) => Offset(o.dx * sx, o.dy * sy);
+    Rect scr(Rect r) => Rect.fromLTRB(r.left * sx, r.top * sy, r.right * sx, r.bottom * sy);
+    final s = switch (shape) {
+      ArrowShape(:final from, :final to, :final points, :final tangents) =>
+        ArrowShape(sc(from), sc(to), points: [for (final p in points) sc(p)],
+            tangents: [for (final t in tangents) t == null ? null : sc(t)]),
+      LineShape(:final from, :final to, :final points, :final tangents) =>
+        LineShape(sc(from), sc(to), points: [for (final p in points) sc(p)],
+            tangents: [for (final t in tangents) t == null ? null : sc(t)]),
+      PenShape(:final points) => PenShape([for (final p in points) sc(p)]),
+      TextShape(:final string, :final at, :final runs) => TextShape(string, sc(at), runs: runs),
+      CalloutShape(:final string, :final at, :final tail, :final runs) =>
+        CalloutShape(string, sc(at), tail: tail == null ? null : sc(tail), runs: runs),
+      StepShape(:final center) => StepShape(sc(center)),
+      RectShape(:final rect) => RectShape(scr(rect)),
+      EllipseShape(:final rect) => EllipseShape(scr(rect)),
+      HighlightShape(:final rect) => HighlightShape(scr(rect)),
+      SpotlightShape(:final rect) => SpotlightShape(scr(rect)),
+      BlurShape(:final rect, :final patch) => BlurShape(scr(rect), patch),
+      ImageShape(:final rect, :final image) => ImageShape(scr(rect), image),
+    };
+    return copyWith(shape: s);
+  }
 }
 
 /// The editable document: a base image plus annotations, all in image points.

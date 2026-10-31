@@ -13,6 +13,7 @@ class CanvasPainter extends CustomPainter {
   final CanvasState state;
   final int? selectionId;
   final double scale; // view points per image point, for crisp 1px handles
+  final double? scaleY; // vertical scale (defaults to [scale]); differs only in the editor after a non-proportional resize
   final int? hiddenTextId; // being typed into: the inline text field draws its text
   /// For the build-up GIF: how far each annotation has appeared (id → 0…1; missing = not yet).
   /// Null draws everything as it is.
@@ -23,8 +24,10 @@ class CanvasPainter extends CustomPainter {
   /// For the build-up GIF: spinning Fourier circles trace lines, pen strokes and outlines as they draw on.
   final bool epicycles;
 
-  CanvasPainter({required this.state, required this.selectionId, required this.scale, this.hiddenTextId,
+  CanvasPainter({required this.state, required this.selectionId, required this.scale, this.scaleY, this.hiddenTextId,
       this.progress, this.march, this.epicycles = false});
+
+  double get _sy => scaleY ?? scale; // vertical scale, == scale unless a non-proportional editor resize set it
 
   double _shown(Annotation a) => progress == null ? 1 : progress![a.id] ?? 0;
 
@@ -42,7 +45,7 @@ class CanvasPainter extends CustomPainter {
   }
 
   void _paintScaled(Canvas canvas) {
-    canvas.scale(scale); // draw everything in image coordinates
+    canvas.scale(scale, _sy); // draw everything in image coordinates (per-axis after a non-proportional resize)
     final img = state.image;
     final imageRect = Rect.fromLTWH(0, 0, img.width.toDouble(), img.height.toDouble());
     canvas.drawRect(imageRect, Paint()..color = state.background); // canvas colour behind the image
@@ -88,7 +91,7 @@ class CanvasPainter extends CustomPainter {
     final sel = state.annotations.where((a) => a.id == selectionId).firstOrNull;
     if (sel == null) return;
     canvas.save();
-    canvas.scale(scale);
+    canvas.scale(scale, _sy);
     _drawSelection(canvas, sel);
     canvas.restore();
   }

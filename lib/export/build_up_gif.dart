@@ -20,8 +20,15 @@ class BuildUpGif {
   static const pauseAfterEach = Duration(milliseconds: 600);
   static const finalHold = Duration(milliseconds: 3000);
   static const lineDraw = Duration(milliseconds: 1200), fourierDraw = Duration(milliseconds: 2800);
-  /// The capture's own pixels (full Retina sharpness), scaled down only past a 4K-wide side.
-  static const maxSide = 3840.0;
+  /// The GIF's longest side in output pixels, user-chosen (editor GIF options / `gifMaxSide` pref): any
+  /// value clamped to [minMaxSide]..[maxMaxSide]. Default 3840 keeps the old behaviour (full Retina
+  /// sharpness, capped at a 4K side). The GIF never upscales past the capture's own pixels — see
+  /// [outputScale].
+  static const minMaxSide = 256, maxMaxSide = 6000;
+  static int maxSide = 3840;
+
+  /// Clamp and set the chosen longest-side size (rejects out-of-range custom values).
+  static void setMaxSide(int px) => maxSide = px.clamp(minMaxSide, maxMaxSide);
 
   /// Fourier circles trace lines, pen strokes and outlines as they draw on (the editor's setting).
   static bool fourier = false;
